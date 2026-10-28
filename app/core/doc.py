@@ -1,6 +1,9 @@
-"""字幕文件：保存在视频旁边（「视频名.猛人学习.json」），写不进去时放到 %APPDATA%\\猛人学习\\library。
-猛人灵修和猛人学习共用这些文件（文件名、备用位置、写锁都一样，config.SHARED_DIR），所以名字不改。
-猛人学习 1.6 以前叫「视频名.猛人字幕.json」：照样能读，下次保存时改成新名字。
+"""字幕文件：保存在视频旁边（「视频名.猛人灵修.json」），写不进去时放到 %APPDATA%\\猛人灵修\\library。
+猛人灵修是独立软件（2026-10-29 用户定：和猛人学习完全独立）：
+- 猛人学习的字幕文件（「视频名.猛人学习.json」，写不进去时在 %APPDATA%\\猛人学习\\library）**只读**：
+  这节课还没有猛人灵修自己的字幕文件时，读它的内容当起点（清掉剪藏记录 clip，那是猛人学习的笔记），
+  保存时只写「.猛人灵修.json」。猛人学习的文件一律不写、不改名、不删。
+- 不认「.猛人字幕.json」（那是猛人学习改名前的文件，猛人学习自己会处理）。
 另外负责导出 TXT / SRT，以及剪藏到 Obsidian。"""
 import hashlib
 import json
@@ -11,11 +14,11 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from .config import APP_NAME, DATA_DIR, SHARED_DIR
+from .config import APP_NAME, DATA_DIR, SIBLING_DIR
 from .llm import fmt
 
-SUFFIX = '.猛人学习.json'  # 和猛人学习共用，不能改
-OLD_SUFFIX = '.猛人字幕.json'
+SUFFIX = '.猛人灵修.json'
+SIBLING_SUFFIX = '.猛人学习.json'  # 猛人学习的字幕文件：只读
 VERSION = 1
 
 
@@ -24,14 +27,22 @@ def sidecar(media_path: str) -> Path:
     return p.with_name(p.name + SUFFIX)
 
 
-def old_sidecar(media_path: str) -> Path:
+def sibling_sidecar(media_path: str) -> Path:
     p = Path(media_path)
-    return p.with_name(p.name + OLD_SUFFIX)
+    return p.with_name(p.name + SIBLING_SUFFIX)
+
+
+def _own_paths(media_path):
+    return (sidecar(media_path), fallback(media_path))
+
+
+def _sibling_paths(media_path):
+    return (sibling_sidecar(media_path), SIBLING_DIR / 'library' / f'{media_key(media_path)}.json')
 
 
 def stored_file(media_path: str):
-    """这个文件现在的字幕 / 整理结果存在哪里（新名字、旧名字、%APPDATA% 里的备用位置），都没有返回 None。"""
-    for p in (sidecar(media_path), old_sidecar(media_path), fallback(media_path)):
+    """这个文件现在的字幕 / 整理结果存在哪里（自己的、%APPDATA% 里的备用位置；都没有时猛人学习的），都没有返回 None。"""
+    for p in _own_paths(media_path) + _sibling_paths(media_path):
         if p.exists():
             return p
     return None
@@ -43,14 +54,13 @@ def media_key(media_path: str) -> str:
 
 
 def fallback(media_path: str) -> Path:
-    return SHARED_DIR / 'library' / f'{media_key(media_path)}.json'  # 和猛人学习共用
+    return DATA_DIR / 'library' / f'{media_key(media_path)}.json'
 
 
 @contextmanager
 def write_lock(media_path: str):
-    """同一节课的字幕文件同时只让一个程序写：界面和命令行（Agent）、猛人灵修和猛人学习可能同时在改同一节课，
-    所以锁文件放在两个软件共用的 %APPDATA%\\猛人学习\\locks。"""
-    d = SHARED_DIR / 'locks'
+    """同一节课的字幕文件同时只让一个程序写：界面和命令行（Agent）可能同时在改同一节课。"""
+    d = DATA_DIR / 'locks'
     d.mkdir(parents=True, exist_ok=True)
     f = open(d / f'{media_key(media_path)}.lock', 'a+b')
     locked = False
@@ -69,15 +79,29 @@ def write_lock(media_path: str):
         f.close()
 
 
+def _read_doc(path):
+    try:
+        d = json.loads(Path(path).read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    return d if isinstance(d, dict) and isinstance(d.get('segments'), list) else None
+
+
 def load(media_path: str):
-    for path in (sidecar(media_path), old_sidecar(media_path), fallback(media_path)):
-        try:
-            d = json.loads(path.read_text(encoding='utf-8'))
-            if isinstance(d, dict) and isinstance(d.get('segments'), list):
-                d['_stored'] = str(path)
-                return d
-        except (OSError, ValueError):
-            continue
+    """读字幕文件。没有猛人灵修自己的，就读猛人学习的当起点（只读）：
+    清掉剪藏记录（那是猛人学习库里的笔记）和保存次数 rev，标上 _from_sibling；保存时只写自己的文件。"""
+    for path in _own_paths(media_path):
+        d = _read_doc(path)
+        if d is not None:
+            d['_stored'] = str(path)
+            return d
+    for path in _sibling_paths(media_path):
+        d = _read_doc(path)
+        if d is not None:
+            d['clip'] = None
+            d.pop('rev', None)
+            d['_stored'] = d['_from_sibling'] = str(path)
+            return d
     return None
 
 
@@ -188,17 +212,10 @@ def save(media_path: str, doc: dict, base_rev=None) -> dict:
         data['segments'] = clean_segments(data.get('segments'))
         data['updated'] = time.strftime('%Y-%m-%d %H:%M:%S')
         data['rev'] = disk_rev + 1
-        try:
-            old, new = old_sidecar(media_path), sidecar(media_path)
-            if old.exists() and not new.exists():  # 改名前的字幕文件：先改成新名字，保存时照样留一份上一版
-                os.replace(old, new)
+        try:  # 只写猛人灵修自己的文件；猛人学习的字幕文件（读进来当起点的）不写、不改名、不删
+            new = sidecar(media_path)
             _write(new, data)
             where = new
-            for p in (old, old.with_name(old.name + '.bak')):
-                try:
-                    p.unlink(missing_ok=True)
-                except OSError:
-                    pass
         except OSError:
             _write(fallback(media_path), data)
             where = fallback(media_path)

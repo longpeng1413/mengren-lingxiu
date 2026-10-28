@@ -205,7 +205,7 @@ check('每一步记下完成时间', set(d['steps']) >= {'transcribe', 'correct'
 rec = tasks.load(t1['task_id'])
 check('任务记录存到磁盘：每步状态、时间、模型', rec['status'] == 'completed' and rec['stages'][1]['model'].startswith('DeepSeek')
       and rec['stages'][0]['started'] and rec['stages'][0]['finished'] and rec['video_id'] == wf.video_id(L1)
-      and rec['options']['steps'] and rec['outputs']['subtitle_file'].endswith('.猛人学习.json'))
+      and rec['options']['steps'] and rec['outputs']['subtitle_file'].endswith('.猛人灵修.json'))
 check('任务记录里没有密钥', 'sk-test' not in (tasks.TASKS_DIR / f'{t1["task_id"]}.json').read_text(encoding='utf-8'))
 check('媒体库能看到整理结果', next(x for x in wf.find(course='峰级') if x['path'] == L1)['state'] == '已整理')
 

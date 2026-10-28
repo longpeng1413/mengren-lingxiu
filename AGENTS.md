@@ -4,29 +4,26 @@
 
 用户是这个软件唯一的使用者兼所有者，不是程序员：和他沟通用中文、讲结果和影响，不讲术语；动手前说清楚要改什么，改完说清楚测了什么。
 
-## 先读：猛人灵修是什么、和猛人学习的关系（2026-10-28）
+## 先读：猛人灵修是什么、和猛人学习的关系
 
-猛人灵修是 2026-10-28 从猛人学习（`D:\mengren-learning`，交易课程字幕整理 + 老师蒸馏，1.8.10）复制改造的，给灵修 / 心灵成长 / 灵性投资老师做蒸馏和数字分身。用户以前想做服务器版「喜悦之道软件」（`D:\喜悦之道软件开发`），周期太长，先做这个本机版。**那个独立项目别动。**
+猛人灵修是**独立软件**：2026-10-28 从猛人学习 1.8.10（`D:\mengren-learning`，交易课程字幕整理 + 老师蒸馏）分出来，给灵修 / 心灵成长 / 灵性投资老师做课程、书籍整理和蒸馏、数字分身。2026-10-29 用户定：**和猛人学习完全独立**，以后灵修的课程、书籍都在猛人灵修里整理、蒸馏；两个软件各自改进，**不从猛人学习合并代码**（git 里已经去掉指向猛人学习的远程，只有 `origin` = GitHub `longpeng1413/mengren-lingxiu`，公开）。用户以前想做服务器版「喜悦之道软件」（`D:\喜悦之道软件开发`），**那个独立项目别动**。
 
-- 项目在 `D:\mengren-lingxiu`，GitHub `longpeng1413/mengren-lingxiu`（公开）。git 远程 `origin` 是 GitHub，`mengren-learning` 指向本机 `D:\mengren-learning`：猛人学习修了 bug，可以 `git fetch mengren-learning` 再挑着合并（`git cherry-pick` 或合并后解决冲突），注意下面这些「灵修版不一样的地方」不要被覆盖回去。
-- 下面原来猛人学习的约定**大部分仍然适用**（关闭流程、file:// 加载、转存、数据文件读不出不能当空、术语表语法、豆包模型、播放规则……）。凡是写「猛人学习」的地方，在这个项目里指猛人灵修自己，除非明确说的是共用的东西。
+下面原来猛人学习的约定**大部分仍然适用**（关闭流程、file:// 加载、转存、数据文件读不出不能当空、术语表语法、豆包模型、播放规则……）。下文写「猛人学习」的历史说明，在这个项目里一般指猛人灵修自己，除非明确说的是猛人学习那个软件。
 
-### 灵修版不一样的地方（改代码时别弄回去）
+### 和猛人学习不一样的地方（改代码时别弄回去）
 
-- **名字和数据分开**：`config.APP_NAME = '猛人灵修'`，数据在 `%APPDATA%\猛人灵修`。**绝不从猛人字幕、猛人学习搬数据**（猛人学习的 `_migrate_data_dir` 已删掉）。防重复打开的互斥锁、`--quit` 退出事件名前缀 `MengrenLingxiu`（按数据目录哈希）。exe 是 `猛人灵修.exe`，托盘、窗口标题、导出设置文件名（`猛人灵修设置.json`）、关于页链接都改了。版本号从 1.0.0 起。
-- **第一次打开从猛人学习带设置**（`config.import_from_sibling`，`main.py` 启动时调用，`--selftest` 不调用）：`%APPDATA%\猛人灵修\settings.json` 不存在时，从 `%APPDATA%\猛人学习\settings.json` 只复制 `SIBLING_KEYS`（`providers` 含 ChatGPT 登录和豆包账号、`proxy`、`asr_en / asr_zh / translate / correct / chat / vision`），**不带**媒体库、老师、术语表、Obsidian、播放进度。读不到就跳过。界面第一次打开会提示带过来了。
-- **和猛人学习共用的东西**（`config.SHARED_DIR = %APPDATA%\猛人学习`）：
-  - 字幕文件 `视频名.mp4.猛人学习.json`（`doc.SUFFIX` **不能改**：用户在猛人学习里识别了几百节灵修课，要直接拿来蒸馏），写不进视频旁边时的备用位置 `SHARED_DIR\library\`；
-  - 字幕写锁 `doc.write_lock` 和「正在整理」标记 `tasks.BUSY_DIR` 都在 `SHARED_DIR\locks`，两个软件不会同时写同一份字幕。标记里写 `app`（哪个软件写的）；`cache.clean_marks` 只清 `app == 猛人灵修` 且进程不在了的标记，猛人学习的（包括没写 `app` 的旧标记）留给它自己清；0 字节的 `.lock` 一天没用就删（正被占着的删不掉，删掉的下次保存重建，谁删都一样）。
-  - 剪藏记录 `clip` 也在共用的字幕文件里：`doc.clip` 只在上次的笔记**在当前 Obsidian 库里**时才更新它（`_inside`），否则在当前库另建，免得猛人灵修改到猛人学习库里的笔记。反过来（同一节课在猛人灵修剪藏后，又在猛人学习里剪藏）猛人学习会更新猛人灵修库里的那篇——这是已知限制，两边都剪藏同一节课时要留意。
+- **名字和数据**：`config.APP_NAME = '猛人灵修'`，数据在 `%APPDATA%\猛人灵修`（设置、媒体库、老师、对话、任务记录、备份、锁和「正在整理」标记 `locks\`）。**绝不从猛人字幕、猛人学习搬数据，也绝不写猛人学习的任何文件。**防重复打开的互斥锁、`--quit` 退出事件名前缀 `MengrenLingxiu`。exe `猛人灵修.exe`、导出设置文件名 `猛人灵修设置.json`、命令行入口 `lingxiu.cmd`（`cli.APP_NAME` 要和 `config.APP_NAME` 一样，`use_real_appdata` 在加载 config 之前跑）。版本号从 1.0.0 起。
+- **字幕文件**：自己的叫 `视频名.mp4.猛人灵修.json`（`doc.SUFFIX`），写不进视频旁边时放 `%APPDATA%\猛人灵修\library\`。**不认 `.猛人字幕.json`**（猛人学习改名前的兼容会在保存时删旧文件，绝不能碰别的软件的文件）。
+- **只读两样猛人学习的东西**（`config.SIBLING_DIR = %APPDATA%\猛人学习`）：
+  - 第一次打开（`%APPDATA%\猛人灵修\settings.json` 还不存在）时，`config.import_from_sibling` 从猛人学习的 `settings.json` 只复制 `SIBLING_KEYS`（`providers` 含 ChatGPT 登录和豆包账号、`proxy`、`asr_en / asr_zh / translate / correct / chat / vision`），**不带**媒体库、老师、术语表、Obsidian、播放进度；之后两边设置互不影响。`main.py` 启动时调用，`--selftest` 不调用。
+  - 打开一节课 / 一本书时，没有自己的 `.猛人灵修.json` 但有猛人学习的 `.猛人学习.json`（或它 `%APPDATA%\猛人学习\library\` 里的备用文件）：`doc.load` 读它当起点，清掉 `clip`（那是猛人学习库里的笔记）和 `rev`，标 `_from_sibling`；`doc.save` 只写 `.猛人灵修.json`。媒体库「有没有字幕 / 整理到哪一步」用 `docs.load` 读，同样认这种情况。改名（`library._moved_file`）时，只有猛人学习字幕的课先复制一份成自己的，**猛人学习的字幕文件不改名、不动**（视频本身改了名，猛人学习那边就对不上了，这是用户在猛人灵修里改名的代价）。测试证明保存、改名后 `.猛人学习.json` 一个字节都没变。
 - **默认值**：
   - 媒体库最上层默认**不写课程重点**（`library.SUMMARY_DEFAULT = 'off'`；文件夹菜单「这里的课不写课程重点」默认打 ✓，取消勾选记成 `'on'`，文件夹旁标「写重点」）。
   - **不找关键帧**：设置 `auto_frames`（默认 False）。`workflow.why_skip('frames')` 在没开 `auto_frames`、不是重做、也没在 `opts['asked']`（调用方明确给的 steps）里时返回 `NO_FRAMES`，不算没做完；一键整理勾上 / 文件夹规则勾上 / `--steps frames` 照样找。
-  - 主题色青绿 `#3cc8c0`；图标是 `design/recolor_full.py` 的 full-7「青碧」（和紫晶的猛人学习、金色的截图教鞭、红宝石色的快传区分开），设计稿在 `D:\mengren-learning\design\icons\full-7-1024.png`。
+  - 图标是用户指定的「猛-3-深海蓝」（原文件在 `C:\Users\Administrator\Desktop\张龙鹏文件夹\猛字图标\`；`app/assets/icon.ico` 原样复制，含 16～256 七种尺寸；`app/assets/icon.png` 512、`app/web/icon.png` 256 从 1024 的 png 缩的；托盘用 `web/icon.png`）。主题色金色 `#e8b04a`，和图标上的金字一致。不要自己再调色。
 - **媒体库列 txt / md**（`book.LIB_EXT = DOC_EXT`，含 `TEXT_EXT`）：文章、对话记录要能选作蒸馏来源。和音视频同名的 txt / md（导出的文字稿，`课.txt` 或 `课.mp4.txt`）不列；里面有 `.obsidian` 的文件夹（Obsidian 库）不列。没当书整理过的 txt / md 不算「未整理完」（`workflow.plain_text`，用在 `pending_in_scan / pending_now / todo_for`）。
 - **灵修版蒸馏**（`core/distill.py`，`PROMPT_VER = 2`）：见下面「老师蒸馏」一节里标「灵修版」的部分。
-- **Obsidian 位置**（用户 2026-10-28 定：灵修老师用另一个 Obsidian 库）：蒸馏结果 `灵修老师/老师名/`（`distill.MENTOR_ROOT`，`mentor.MENTOR_ROOT` 要一样）；圆桌讨论、主题蒸馏 `灵修主题/主题文件夹/`（`roundtable.TOPIC_ROOT`、`TOPIC_FOLDERS` 六个灵修主题）；新老师术语表 `灵修术语表/老师名术语表.md`（`glossary.KB_DIR`，逐课补充一节叫「逐课补充（猛人灵修）」，关联的是猛人学习建的术语表时接着写它的「逐课补充（猛人学习）」，`SECTION_NAMES`）；剪藏默认文件夹 `灵修课程`。提示词不再写进知识库文件（`prompts_markdown` 只在需要时生成）。
-- 命令行入口 `lingxiu.cmd`（原 `mengren.cmd`），`cli.APP_NAME` 要和 `config.APP_NAME` 一样（`use_real_appdata` 在加载 config 之前跑）。
+- **Obsidian**：用户的灵修知识库是 `C:\猛人灵修`（2026-10-29 建好，里面有 `00、这个库怎么用.md`）。`obsidian.vault` 默认值保持空（开源软件不写死个人路径），其余默认路径和这个库一致：课程剪藏 `课程剪藏/老师名/`（`obsidian.folder`）、书籍剪藏 `书籍剪藏/`（`obsidian.book_folder`）、老师蒸馏结果 `灵修老师/老师名/`（`distill.MENTOR_ROOT`，`mentor.MENTOR_ROOT` 要一样）、圆桌讨论和主题蒸馏 `灵修主题/主题文件夹/`（`roundtable.TOPIC_ROOT`、`TOPIC_FOLDERS` 六个灵修主题）、新老师术语表 `灵修术语表/老师名术语表.md`（`glossary.KB_DIR`；逐课补充一节叫「逐课补充（猛人灵修）」，也认「逐课补充（猛人学习）」）。提示词不往知识库写（`prompts_markdown` 需要时再生成）。
 
 ## 绝对不要做的事
 
@@ -45,14 +42,14 @@
 
 ### 改名（猛人学习 1.6 的历史）
 
-猛人学习原名「猛人字幕」。猛人灵修**不**搬 `%APPDATA%\猛人字幕` 的数据（已删掉 `_migrate_data_dir`），但 `doc.load` 还认旧的 `.猛人字幕.json`（保存时改成共用的 `.猛人学习.json`）；设置导入认猛人灵修、猛人学习、猛人字幕三个名字；`find_note` 认三个标签。
+猛人学习原名「猛人字幕」。猛人灵修**不**搬 `%APPDATA%\猛人字幕` 的数据（已删掉 `_migrate_data_dir`），也**不认** `.猛人字幕.json` 字幕文件（那个兼容会在保存时删旧文件，绝不能碰别的软件的文件）；设置导入（用户手动选文件）认猛人灵修、猛人学习、猛人字幕三个名字；`find_note` 认三个标签。
 - **不要动 `D:\Claude-乔木剪藏`**（以前在 `E:\Claude-乔木剪藏`），那是另一个项目。
 
 ## 必须保持的行为
 
 ### 字幕文件兼容
 
-字幕存在视频旁边的 `视频名.mp4.猛人学习.json`（和猛人学习共用；写不进去时放共用的 `%APPDATA%\猛人学习\library\`），见 `app/core/doc.py`。用户已经有大量做好的字幕：
+字幕存在视频旁边的 `视频名.mp4.猛人灵修.json`（写不进去时放 `%APPDATA%\猛人灵修\library\`；猛人学习的 `.猛人学习.json` 只读当起点，见上面），见 `app/core/doc.py`。用户已经有大量做好的字幕：
 
 - 新增字段可以，但读取时要给旧文件缺的字段兜底；
 - 不要改名或删除已有字段（`segments`、`summary`、`chat`、`versions`、`teacher`、`reviewed`、`corrected`、`clip`、`pending_task`、`doubts` 等）；（`pending_task` 是以前豆包闲时版留下的「还在处理」记录，闲时版 2026-10-14 去掉了，重新识别时删掉它）
@@ -283,7 +280,7 @@ python -m venv .venv
 
 - `app/core/book.py`：PDF 用 pypdfium2 读文字层、认图片 / 矢量图、渲染页面（需要 Pillow）；Word 直接解析 docx 的 XML；TXT / MD 按标题切。
 - `app/core/ebook.py`（2026-10-14，用户要求按微信读书能导入的格式补齐，TXT 除外，加上 PPT）：EPUB（按 spine 读 XHTML，目录当章名）、MOBI / AZW3 / AZW（自己解 PalmDB + PalmDOC；DRM 加密和 HUFF/CDIC 压缩的读不了，明确提示）、DOC（`olefile` 读 WordDocument 流的 piece table，没有标题层级，分章靠「第X章」）、PPTX / PPT（一张幻灯片一「页」，PPT 用 `olefile` 读文字记录）。都转成「块」交给 `book._pseudo_pages`，`book.LIB_EXT` 是媒体库列出的格式。文档属性里「Administrator」「空白演示」这类模板值不用（`clean_meta`）。不要引入 GPL 的电子书库（项目是 MIT）；`olefile` 是 BSD。测试文件由 `tests/make_test_ebooks.py` 生成（.doc / .ppt 借本机 WPS 另存，没有 WPS 就跳过）。书上页码 = PDF 页序 − `shift`，自动从页面上下单独的数字认，用户可以改。
-- 书籍的整理结果也存在旁边的 `.猛人学习.json`，`kind: 'book'`，字段：`title, author, shift, chapters[{title, start, end, md}], overview, clip`，`segments` 留空列表（兼容）。
+- 书籍的整理结果也存在旁边的 `.猛人灵修.json`，`kind: 'book'`，字段：`title, author, shift, chapters[{title, start, end, md}], overview, clip`，`segments` 留空列表（兼容）。
 - 整理一章时一次最多 18 页 / 36000 字 / 10 张页面图，超了先分段写笔记再合成；整理完按「没被引用的页」查漏（`review_chapter`）。用户在设置里关联了知识库的整理规范（`book_rules_file`）时，整份规范交给 AI，以它为准。
 - PDF 旁边同名的 .docx（WPS OCR 导出）自动当正文参考（`companion_docx` / `companion_slice`：按章名在 Word 全文里找这一章，跳过目录）；媒体库不单独列这份 Word。
 - 每章整理后三步：`review_chapter`（没被引用的页查漏）→ `verify_doubts`（把「需要人工确认」里提到的页截图给 AI 核对，能确认的改正并记进「已确认的 OCR 修正」）。
@@ -293,7 +290,7 @@ python -m venv .venv
 
 ## 没有进仓库的东西
 
-- `design/`（只在 `D:\mengren-learning` 里，猛人灵修没有复制）：图标设计稿、原图、字体、其他配色方案。猛人灵修的图标是其中的 full-7「青碧」。下面说的「紫晶」是猛人学习的图标。正式图标是「紫晶」（1.7.12 起，`design/recolor_full.py` 的 full-4：字、龙纹、边框、背景整体换成紫色，和金色的猛人截图教鞭、红宝石色的猛人快传区分开），在 `app/assets/` 和 `app/web/icon.png`。之前的「帝王紫」只换了背景、字还是金色，和另外两个软件放在一起分不清。
+- `design/`（只在 `D:\mengren-learning` 里，猛人灵修没有复制）：图标设计稿、原图、字体、其他配色方案。（猛人灵修的图标不是从这里来的，是用户指定的「猛-3-深海蓝」，见上面。）下面说的「紫晶」是猛人学习的图标。正式图标是「紫晶」（1.7.12 起，`design/recolor_full.py` 的 full-4：字、龙纹、边框、背景整体换成紫色，和金色的猛人截图教鞭、红宝石色的猛人快传区分开），在 `app/assets/` 和 `app/web/icon.png`。之前的「帝王紫」只换了背景、字还是金色，和另外两个软件放在一起分不清。
 - `.venv/`、`dist/`、`dist-next/`、`build/`、`release/`。
 
 ## 还没在真实使用中验证的

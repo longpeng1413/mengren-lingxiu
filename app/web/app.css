@@ -1,6 +1,6 @@
 /* ---------- 主题 ---------- */
 :root {
-  --accent: #3cc8c0;
+  --accent: #e8b04a;
   --accent-ink: #1a1408;
   --accent-weak: color-mix(in srgb, var(--accent) 16%, transparent);
   --accent-line: color-mix(in srgb, var(--accent) 45%, transparent);

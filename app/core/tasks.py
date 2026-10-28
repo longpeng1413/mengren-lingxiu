@@ -5,8 +5,7 @@
 
 还负责：
 - 错误分类：网络、接口临时错误可以自动重试；缺密钥、文件不存在、视频损坏这类不重试；
-- 「正在整理」标记：同一节课同时只让一个 Agent 处理，界面打开这节课时能提示；标记放在和猛人学习共用的
-  %APPDATA%\\猛人学习\\locks（两个软件都看得到对方正在整理哪节课），标记里写着是哪个软件（app）；
+- 「正在整理」标记：同一节课同时只让一个 Agent 处理，界面打开这节课时能提示（%APPDATA%\\猛人灵修\\locks）；
 - 取消：另一个命令写一个 <task_id>.cancel 文件，正在跑的任务看到就停。
 """
 import json
@@ -17,11 +16,11 @@ import time
 import uuid
 from pathlib import Path
 
-from .config import APP_NAME, DATA_DIR, SHARED_DIR
+from .config import APP_NAME, DATA_DIR
 from .log import log
 
 TASKS_DIR = DATA_DIR / 'tasks'
-BUSY_DIR = SHARED_DIR / 'locks'  # 和猛人学习共用
+BUSY_DIR = DATA_DIR / 'locks'
 KEEP = 300  # 最多留多少条任务记录
 
 # 任务和每一步的状态。skipped：这一步不需要做（已经做过、中文不用翻译、没有画面……），原因写在 reason
@@ -337,7 +336,7 @@ def claim(key, task_id):
         except FileExistsError:
             other = busy(key)
             if other and other.get('task_id') != task_id:
-                raise WorkError('busy', f'这节课正在被{"猛人学习的" if other.get("app", "猛人学习") != APP_NAME else ""}另一个任务整理（{other.get("task_id")}，{other.get("since")} 开始）')
+                raise WorkError('busy', f'这节课正在被另一个任务整理（{other.get("task_id")}，{other.get("since")} 开始）')
             f.unlink(missing_ok=True)  # 留下来的旧标记（那个程序已经不在了）
             continue
         with os.fdopen(fd, 'w', encoding='utf-8') as fp:

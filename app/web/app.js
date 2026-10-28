@@ -115,7 +115,7 @@ const THEMES = [
   { id: 'dim', name: '深灰', bg: '#24252a', fg: '#ecebe7' },
   { id: 'light', name: '浅色', bg: '#fbf9f5', fg: '#22201c' },
 ];
-const ACCENTS = ['#3cc8c0', '#e8b04a', '#ff8a3d', '#ff5a5a', '#b48cff', '#4c9bff', '#ece8df'];
+const ACCENTS = ['#e8b04a', '#3cc8c0', '#ff8a3d', '#ff5a5a', '#b48cff', '#4c9bff', '#ece8df'];
 const FONTS = {
   yahei: '"Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", sans-serif',
   hei: 'SimHei, "Heiti SC", sans-serif',
@@ -128,7 +128,7 @@ const FONTS = {
 function applyLook() {
   const s = S.settings, root = document.documentElement.style;
   document.documentElement.dataset.theme = s.theme || 'dark';
-  root.setProperty('--accent', s.accent || '#3cc8c0');
+  root.setProperty('--accent', s.accent || '#e8b04a');
   root.setProperty('--cue-size', (s.font_size || 17) + 'px');
   root.setProperty('--cue-line', s.line_height || 1.6);
   root.setProperty('--cue-gap', (s.cue_gap ?? 9) + 'px');

@@ -31,7 +31,7 @@ https://developer.microsoft.com/microsoft-edge/webview2/
 
 【数据放在哪里】
 设置、密钥、老师档案、媒体库：%APPDATA%\\猛人灵修\\（和猛人学习分开）
-字幕和整理结果：视频 / 文档旁边的「文件名.猛人学习.json」（和猛人学习共用同一份，两个软件都能打开）
+字幕和整理结果：视频 / 文档旁边的「文件名.猛人灵修.json」（猛人学习识别好的「.猛人学习.json」只读过来当起点，不会改它）
 缓存和日志：软件文件夹里的「缓存（可随时删除）」「日志（可随时删除）」
 
 开源地址：https://github.com/longpeng1413/mengren-lingxiu

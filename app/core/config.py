@@ -1,8 +1,8 @@
 """设置与目录。
 - 设置、老师档案、媒体库、播放进度（都很小）：%APPDATA%\猛人灵修\。和猛人学习的数据完全分开，
   第一次打开时只从猛人学习带过来 AI 登录、豆包密钥和服务选择（import_from_sibling）。
-- 和猛人学习共用的：字幕文件（视频旁边的「视频名.猛人学习.json」），以及防止两个软件同时写同一份字幕的
-  写锁、「正在整理」标记、写不进视频旁边时的备用位置，都在 %APPDATA%\猛人学习\（SHARED_DIR）。
+- 猛人灵修是独立软件，不和猛人学习共用任何文件。只**读**猛人学习的两样东西：第一次打开时的 AI 登录和密钥，
+  以及还没有猛人灵修字幕文件的课的「视频名.猛人学习.json」（当起点，见 doc.load）。猛人学习的文件一律不写。
 - 缓存和日志（会变大，可以随时删除）：默认放在软件所在文件夹，
   「缓存（可随时删除）」和「日志（可随时删除）」；也可以在设置里换到别的位置（重启后生效）。"""
 import copy
@@ -17,12 +17,12 @@ import uuid
 from pathlib import Path
 
 APP_NAME = '猛人灵修'
-SIBLING_NAME = '猛人学习'   # 从它复制出来的软件：共用字幕文件和锁目录，第一次打开时带过来 AI 登录
+SIBLING_NAME = '猛人学习'   # 从它分出来的软件（1.8.10）：只读它的 AI 登录和字幕文件，从不写它的文件
 OLD_APP_NAME = '猛人字幕'   # 猛人学习 1.6 以前的名字（只用来认旧的字幕文件、旧的缓存位置，绝不从那里搬数据）
 _APPDATA = Path(os.environ.get('APPDATA') or Path.home())
 DATA_DIR = _APPDATA / APP_NAME
-SHARED_DIR = _APPDATA / SIBLING_NAME
-SIBLING_SETTINGS = SHARED_DIR / 'settings.json'
+SIBLING_DIR = _APPDATA / SIBLING_NAME
+SIBLING_SETTINGS = SIBLING_DIR / 'settings.json'
 
 SETTINGS_FILE = DATA_DIR / 'settings.json'
 POSITIONS_FILE = DATA_DIR / 'positions.json'
@@ -111,7 +111,7 @@ DEFAULTS = {
     'auto_correct': True,
     'imported_from': '',  # 第一次打开时从猛人学习带过来设置的时间（import_from_sibling）
     'theme': 'dark',
-    'accent': '#3cc8c0',  # 青绿（和图标一样，和猛人学习的金色分开）
+    'accent': '#e8b04a',  # 金色，和深海蓝图标上的金字一致
     'font_size': 17,
     'line_height': 1.6,
     'cue_gap': 9,
@@ -135,8 +135,8 @@ DEFAULTS = {
     'last_lang': 'zh',
     'last_teacher': '',
     'storage_dir': '',
-    'obsidian': {'vault': '', 'folder': '灵修课程', 'teacher_subfolder': True, 'name_pattern': '{title}',
-                 'book_folder': '灵修课程/书籍', 'book_dir_pattern': '《{title}》{author}'},
+    'obsidian': {'vault': '', 'folder': '课程剪藏', 'teacher_subfolder': True, 'name_pattern': '{title}',
+                 'book_folder': '书籍剪藏', 'book_dir_pattern': '《{title}》{author}'},
     'book_rules_file': '',
     'auto_review': True,
     'auto_frames': False,  # 一键整理、后台整理默认找不找关键帧（插图）：灵修课一般不用，默认不找，勾选了照样找

@@ -194,6 +194,16 @@ check('改文件名：电脑上的文件、字幕文件一起改，扩展名不�
 check('改文件名：标题、记的路径跟着改，旧路径记下来（剪藏时找原来的笔记）', nd['title'] == '2、改过的名字' and nd['media'] == str(nf)
       and str(f) in nd['media_history'] and nd['summary'] == '重点')
 check('改文件名：播放进度、最近打开跟着改', config.get_position(str(nf)) == 12.0 and any(x['path'] == str(nf) for x in config.load()['recent']))
+g = C / '1、第一讲' / '10、c.mp4'  # 只有猛人学习识别好的字幕（只读）的课改名
+gs = docs.sibling_sidecar(str(g))
+gs.write_text(json.dumps({'segments': [{'start': 0, 'end': 1, 'text': '猛人学习识别的', 'tr': ''}], 'clip': {'path': 'X:\\别的库\\c.md'}}, ensure_ascii=False), encoding='utf-8')
+gb = gs.read_bytes()
+r = api.call('rename', {'path': str(g), 'name': '10、新名字'})
+ng = C / '1、第一讲' / '10、新名字.mp4'
+ngd = docs.load(str(ng)) or {}
+check('只有猛人学习字幕的课改名：猛人学习的字幕文件原地不动、一个字节没变，猛人灵修复制一份成自己的（不带剪藏记录）',
+      r['ok'] and gs.exists() and gs.read_bytes() == gb and docs.sidecar(str(ng)).exists() and not docs.sibling_sidecar(str(ng)).exists()
+      and ngd.get('segments', [{}])[0].get('text') == '猛人学习识别的' and not ngd.get('_from_sibling') and not ngd.get('clip'), (r, ngd))
 r = api.call('rename', {'path': str(nf), 'name': '1、a'})
 check('改名：同名已经有了，不改并说明', not r['ok'] and '同名' in r['error'])
 r = api.call('rename', {'path': str(nf), 'name': 'a/b'})

@@ -380,7 +380,7 @@
 <dialog id="dlgDistill" class="dialog distill-dlg">
   <form method="dialog">
     <h2 id="dsTitle">从媒体库的课和文章蒸馏一位老师</h2>
-    <p class="muted">AI 逐份把老师讲的拆成观点库：观点、修法、原话、比喻和故事、问答（每条带出处），再合并成课程蒸馏、写出老师画像，写进 Obsidian 的「灵修老师」。音视频要先有字幕（猛人学习里识别好的直接能用）；文章、对话记录直接能选。做完就能在老师工作台里和这位老师对话。</p>
+    <p class="muted">AI 逐份把老师讲的拆成观点库：观点、修法、原话、比喻和故事、问答（每条带出处），再合并成课程蒸馏、写出老师画像，写进 Obsidian 的「灵修老师」。音视频要先有字幕（猛人学习里识别好的直接读过来用）；文章、对话记录直接能选。做完就能在老师工作台里和这位老师对话。</p>
     <label class="ds-row">老师名字 <input id="dsName" placeholder="例如：某某老师"></label>
     <label class="ds-row">资料在哪个文件夹 <select id="dsFolder"></select></label>
     <div class="ds-tools"><button type="button" class="btn small" id="dsAll">全选</button><button type="button" class="btn small" id="dsNone">全不选</button><span class="muted" id="dsCount"></span></div>
@@ -497,7 +497,7 @@
 
       <section data-h="start">
         <h3>快速开始</h3>
-        <p>猛人灵修是给灵修、心灵成长老师用的整理和蒸馏工具：把老师的课程音视频、文章、对话记录整理好，蒸馏成观点库、语录、比喻和故事、问答和老师画像，然后像向老师本人提问一样和他对话。它从猛人学习改出来，和猛人学习共用视频旁边的字幕文件：在猛人学习里识别好的课，这里直接能用。第一次使用按下面四步来：</p>
+        <p>猛人灵修是给灵修、心灵成长老师用的整理和蒸馏工具：把老师的课程音视频、文章、对话记录整理好，蒸馏成观点库、语录、比喻和故事、问答和老师画像，然后像向老师本人提问一样和他对话。它从猛人学习 1.8.10 分出来，是独立的软件：设置、媒体库、字幕文件都和猛人学习分开。在猛人学习里识别好的课，这里打开时会把字幕读过来当起点（只读，不改猛人学习的文件）。第一次使用按下面四步来：</p>
         <ol>
           <li><b>设置 AI 服务</b>：点右上角的齿轮打开「设置」。
             <ul>
@@ -677,7 +677,7 @@
         <p>把一位灵修 / 心灵成长老师的课程和文字资料蒸馏好以后，AI 就能按这位老师的教导、语气和回应方式和你对话，像向老师本人请教一样。<b>它是 AI 按老师的资料模拟的，不是老师本人</b>；问它时它也会照实这么说。</p>
         <h4>怎么开始：蒸馏一位老师</h4>
         <ul>
-          <li><b>准备资料</b>：音视频课要先有字幕（在猛人灵修或猛人学习里识别都行，两个软件共用视频旁边的字幕文件，猛人学习里识别好的课这里直接能用；不用先校对、不用写课程重点）。文章、对话记录、书（txt、md、Word、PDF、EPUB 等）放进媒体库的文件夹就行，不用另外处理。</li>
+          <li><b>准备资料</b>：音视频课要先有字幕（在猛人灵修里识别；猛人学习里已经识别好的课，这里直接读过来用，不用重新识别，也不会改动猛人学习的文件；不用先校对、不用写课程重点）。文章、对话记录、书（txt、md、Word、PDF、EPUB 等）放进媒体库的文件夹就行，不用另外处理。</li>
           <li><b>从媒体库蒸馏</b>：左栏顶上切到「老师」，点人像加号按钮 →「从媒体库的课和文章蒸馏一位新老师」（或在「课程」里右键一个文件夹 →「用这个文件夹的课和文章蒸馏一位老师」）。填老师名字，选资料所在的文件夹，勾选要用的课和文章，点「开始蒸馏」。</li>
           <li><b>蒸馏做三步</b>：① 逐份提取观点库：每份资料单独让 AI 读完原文，拆出<b>观点、修法、定义</b>，<b>老师原话</b>（语录，照录），<b>比喻和故事</b>，<b>问答</b>（学员问了什么、老师怎么回应、用的什么方式：先接纳还是先点破、反问、讲故事、带着做练习），以及老师讲自己的经历；每条都带出处。② 合并成「课程蒸馏」：一句话、核心教导体系、核心观点、修法、反复强调的、常用比喻和故事、前后不一致的、没讲到的、可以实践的。③ 写「老师画像」：第一节是软件固定写的对话规则，后面是他的核心信念、<b>他怎么回应一个人的困惑</b>、语录、比喻和故事、说话风格、回答示范。资料很多时，第 ② 步会先分组小结再合并。</li>
           <li><b>出处</b>：音视频写成 <code>S02 19:54</code>（第 2 份资料 19 分 54 秒）；文字资料写成 <code>S03 第12段</code>（第 3 份资料第 12 段，每个非空行算一段；PDF 是第几页）。观点库编号：<code>S02-21</code> 观点，<code>S02-Y3</code> 原话，<code>S02-B1</code> 比喻和故事，<code>S02-W1</code> 问答，<code>S02-A1</code> 老师自述。</li>
@@ -775,7 +775,7 @@
               <li>原书图示非必要不用，每章最多 2 张，按位置裁剪、压缩。</li>
             </ul></li>
           <li>点「全书总览」生成「00、全书总览」，再点顶栏「剪藏」：写进 Obsidian 的 <code>《书名》作者/</code> 文件夹。重新剪藏和视频笔记一样：你在 Obsidian 里自己加的小节（例如 <code>## 我的笔记</code>）、写在要点下面的标注（<code>&gt; [!note] 我的理解</code>）、属性和标签都会保留；直接改了软件写的小节，剪藏前会先问你，确认后先备份再更新。</li>
-          <li>可以在「设置 → Obsidian」里关联知识库里的《外部书籍与文档整理规范》，整理时以它为准。</li>
+          <li>可以在「设置 → Obsidian」里关联你知识库里的书籍整理规范（一篇 MD），整理时以它为准。</li>
         </ol>
       </section>
 
@@ -815,7 +815,7 @@
       <section data-h="data" hidden>
         <h3>数据和隐私</h3>
         <ul>
-          <li><b>字幕、课程重点、插图说明、对话、历史版本</b>：存在视频旁边的 <code>视频名.mp4.猛人学习.json</code>；书籍的整理结果存在文档旁边的 <code>书名.pdf.猛人学习.json</code>。这些文件和猛人学习<b>共用同一份</b>（两个软件都能打开、都能改；同一节课不能两边同时写，软件会排队等对方写完）。删了就没了。改名前的 <code>.猛人字幕.json</code> 照样能读，下次保存时自动改名。</li>
+          <li><b>字幕、课程重点、插图说明、对话、历史版本</b>：存在视频旁边的 <code>视频名.mp4.猛人灵修.json</code>；书籍的整理结果存在文档旁边的 <code>书名.pdf.猛人灵修.json</code>。删了就没了。还没有这个文件、但旁边有猛人学习的 <code>.猛人学习.json</code> 时，打开会把它读过来当起点（不带猛人学习的剪藏记录），保存时只写 <code>.猛人灵修.json</code>，猛人学习的文件一个字都不改。</li>
           <li><b>设置、API 密钥、ChatGPT 登录、老师档案、媒体库、播放进度</b>：在 <code>%APPDATA%\猛人灵修\</code>（和猛人学习的分开），都很小。不要删；换电脑用「导出设置」。</li>
           <li><b>整理任务记录</b>（每次整理每一步做得怎样、出错的原因，最多留 300 条）：在 <code>%APPDATA%\猛人灵修\tasks\</code>，可以删。</li>
           <li><b>缓存</b>（转换后的视频、抽出的音频、关键帧截图、书籍页面图）和<b>日志</b>：在软件文件夹里的「缓存（可随时删除）」「日志（可随时删除）」，可以随时删，会自动清理：音频 3 天、截图和转换后的视频 30 天没用就删，转换后的视频最多留 5GB。「设置 → 关于与数据」里能看到占了多少，也能一键清空。</li>
@@ -931,12 +931,12 @@
       <section data-sec="obsidian" hidden>
         <h3>Obsidian</h3>
         <div class="field"><div class="label">库的位置</div><div class="key-row"><input data-k="obsidian.vault"><button class="btn small" id="pickVault">选择…</button></div></div>
-        <div class="field"><div class="label">存到库里的哪个文件夹</div><div class="key-row"><input data-k="obsidian.folder" placeholder="例如：灵修课程 或 学习/课程笔记"><button class="btn small" id="pickFolder">选择…</button></div></div>
-        <div class="field"><label class="check"><input type="checkbox" data-k="obsidian.teacher_subfolder"> 按老师分子文件夹（例如 灵修课程/某某老师/）</label></div>
+        <div class="field"><div class="label">存到库里的哪个文件夹</div><div class="key-row"><input data-k="obsidian.folder" placeholder="例如：课程剪藏"><button class="btn small" id="pickFolder">选择…</button></div></div>
+        <div class="field"><label class="check"><input type="checkbox" data-k="obsidian.teacher_subfolder"> 按老师分子文件夹（例如 课程剪藏/某某老师/）</label></div>
         <div class="field"><div class="label">笔记文件名</div><input data-k="obsidian.name_pattern" placeholder="{title}">
           <div class="hint">{title} 是视频名，{teacher} 是老师，{series} 是媒体库文件夹名。例如 <code>{title}（猛人灵修）</code>。</div></div>
         <div class="label strong" style="margin-top:18px">书籍和文档</div>
-        <div class="field"><div class="label">存到库里的哪个文件夹</div><div class="key-row"><input data-k="obsidian.book_folder" placeholder="例如：03、收集箱/01、外部原始资料/01、文章与书籍资料"><button class="btn small" id="pickBookFolder">选择…</button></div>
+        <div class="field"><div class="label">存到库里的哪个文件夹</div><div class="key-row"><input data-k="obsidian.book_folder" placeholder="例如：书籍剪藏"><button class="btn small" id="pickBookFolder">选择…</button></div>
           <div class="hint">每本书一个文件夹：<code>《书名》作者/00、全书总览.md</code>、<code>01、第一章 ….md</code>…，必要的原书图示放在 <code>image</code> 里。</div></div>
         <div class="field"><div class="label">书的文件夹名</div><input data-k="obsidian.book_dir_pattern" placeholder="《{title}》{author}"></div>
         <div class="field"><div class="label">书籍整理规范文件（可选，推荐关联知识库里的正式规范）</div>

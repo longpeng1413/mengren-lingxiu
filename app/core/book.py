@@ -1,10 +1,10 @@
-"""文档和书籍的来源级整理（对应知识库《外部书籍与文档整理规范》）：
+"""文档和书籍的来源级整理（用户可以关联知识库里自己的书籍整理规范，book_rules_file）：
 - 支持原生 PDF、OCR 过的扫描 PDF、Word（.docx / 老版 .doc）、电子书（EPUB、MOBI、AZW3）、演示文稿（PPTX / PPT）、TXT / Markdown（新格式的读取在 ebook.py）；
 - 文字层负责读正文，原页面负责看图表：有图、表、公式的页面截成图片一起交给能看图的 AI；
 - 以书上印的页码（P42）作为回溯锚点；书上没有页码时写「PDF 第 X 页」；
 - 一章一章整理：章节 MD 按规范的固定栏目；最后生成「00、全书总览」；
 - 原书图示非必要不用，每章最多 2 张，按 AI 给的位置裁剪、压缩后放进笔记旁边的 image 文件夹。
-整理结果存在原文件旁边的「文件名.猛人学习.json」里（和猛人学习共用），剪藏时写成 Obsidian 笔记。"""
+整理结果存在原文件旁边的「文件名.猛人灵修.json」里（猛人学习整理过的「.猛人学习.json」只读当起点，见 doc.load），剪藏时写成 Obsidian 笔记。"""
 import ctypes
 import os
 import re
@@ -559,7 +559,7 @@ def _rules(settings):
     if p and os.path.isfile(p):
         from .config import read_text_file
         try:
-            return ('以下是用户知识库里正式生效的《外部书籍与文档整理规范》，以它为准（其中关于独立审计、放行、归档、Obsidian 目录的部分由用户另行处理，你只做整理）：\n\n'
+            return ('以下是用户知识库里正式生效的书籍整理规范，以它为准（其中关于独立审计、放行、归档、Obsidian 目录的部分由用户另行处理，你只做整理）：\n\n'
                     + read_text_file(p)[:40000] + '\n\n' + DEFAULT_RULES)
         except (OSError, ValueError):
             pass

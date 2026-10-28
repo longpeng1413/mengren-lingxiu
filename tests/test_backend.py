@@ -34,7 +34,12 @@ from core import asr, config, doc as docs, media  # noqa: E402
 MEDIA = TMP / 'media'
 MEDIA.mkdir()
 shutil.copy(ROOT / 'test-media' / '演示视频.mp4', MEDIA / '演示视频.mp4')
-shutil.copy(ROOT / 'test-media' / '演示视频.mp4.猛人字幕.json', MEDIA / '演示视频.mp4.猛人字幕.json')
+# 猛人学习识别好的字幕（只读）：故意带上猛人学习的剪藏记录和保存次数，看猛人灵修会不会清掉、会不会写它
+SIB = MEDIA / '演示视频.mp4.猛人学习.json'
+_sd = json.loads((ROOT / 'test-media' / '演示视频.mp4.猛人字幕.json').read_text(encoding='utf-8'))
+_sd.update(clip={'path': 'X:\\猛人学习的库\\演示视频.md', 'time': '2026-10-01'}, rev=7)
+SIB.write_text(json.dumps(_sd, ensure_ascii=False), encoding='utf-8')
+SIB_BYTES = SIB.read_bytes()
 shutil.copy(ROOT / 'test-media' / '旧格式.avi', MEDIA / '旧格式.avi')
 api = Api()
 passed = 0
@@ -72,21 +77,18 @@ def wait(job_id, timeout=120):
 # 数据分开：猛人灵修的数据在 %APPDATA%\\猛人灵修，绝不从猛人字幕、猛人学习搬数据
 check('数据在自己的文件夹，猛人字幕、猛人学习的数据一点不动', config.DATA_DIR.name == '猛人灵修' and config.load()['storage_dir'] == str(TMP / 'store')
       and (TMP / 'appdata' / '猛人字幕' / 'settings.json').read_text(encoding='utf-8') == '{"theme": "猛人字幕的"}'
-      and config.SHARED_DIR == TMP / 'appdata' / '猛人学习')
-# 和猛人学习共用：字幕写锁、「正在整理」标记都在 %APPDATA%\\猛人学习\\locks，两个软件不会同时写同一份字幕
+      and config.SIBLING_DIR == TMP / 'appdata' / '猛人学习')
+# 完全独立：字幕写锁、「正在整理」标记都在猛人灵修自己的 %APPDATA%\\猛人灵修\\locks，不碰猛人学习的文件夹
 from core import cache as _cache, tasks as _tasks  # noqa: E402
 with docs.write_lock(str(MEDIA / '演示视频.mp4')):
-    _lk = list((config.SHARED_DIR / 'locks').glob('*.lock'))
+    _lk = list((config.DATA_DIR / 'locks').glob('*.lock'))
 _tasks.claim('k-mine', 't-1')
-_bz = json.loads((config.SHARED_DIR / 'locks' / 'k-mine.busy').read_text(encoding='utf-8'))
-check('字幕写锁、「正在整理」标记放在和猛人学习共用的文件夹，标记写着是哪个软件', len(_lk) == 1 and _bz['app'] == '猛人灵修'
-      and _tasks.busy('k-mine')['task_id'] == 't-1' and not (config.DATA_DIR / 'locks').exists(), (_lk, _bz))
+check('字幕写锁、「正在整理」标记在猛人灵修自己的文件夹，猛人学习那边不建任何东西', len(_lk) == 1 and _tasks.busy('k-mine')['task_id'] == 't-1'
+      and (config.DATA_DIR / 'locks' / 'k-mine.busy').exists() and not (config.SIBLING_DIR / 'locks').exists(), _lk)
 _tasks.release('k-mine', 't-1')
-for _k, _app in (('k-dead-mine', '猛人灵修'), ('k-dead-theirs', '猛人学习'), ('k-dead-old', None)):
-    (config.SHARED_DIR / 'locks' / f'{_k}.busy').write_text(json.dumps({'task_id': 'x', 'pid': 4194300, 'since': '', **({'app': _app} if _app else {})}), encoding='utf-8')
+(config.DATA_DIR / 'locks' / 'k-dead.busy').write_text(json.dumps({'task_id': 'x', 'pid': 4194300, 'since': ''}), encoding='utf-8')
 _cache.clean_marks()
-check('清理「正在整理」标记：只清猛人灵修自己留下的，猛人学习的留给它自己清', not (config.SHARED_DIR / 'locks' / 'k-dead-mine.busy').exists()
-      and (config.SHARED_DIR / 'locks' / 'k-dead-theirs.busy').exists() and (config.SHARED_DIR / 'locks' / 'k-dead-old.busy').exists())
+check('清理：整理它的程序已经不在了的「正在整理」标记删掉', not (config.DATA_DIR / 'locks' / 'k-dead.busy').exists())
 check('已经有自己的设置时，不从猛人学习带东西', config.import_from_sibling() == [] and 'imported_from' not in json.loads(config.SETTINGS_FILE.read_text(encoding='utf-8')))
 _real_sf = config.SETTINGS_FILE
 config.SETTINGS_FILE = TMP / 'first-run' / 'settings.json'
@@ -99,13 +101,19 @@ check('第一次打开：从猛人学习只带过来 AI 登录、豆包密钥、
       and _loaded['providers']['doubao']['key'] == 'doubao-test-key' and _loaded['providers']['doubao']['more_keys'][0]['key'] == 'k2'
       and _loaded['proxy'] == 'http://127.0.0.1:7890' and _loaded['chat'] == 'codex'
       and 'obsidian' not in _first and 'last_teacher' not in _first and 'recent' not in _first and _loaded['obsidian']['vault'] == '', _first)
-check('猛人学习的设置文件没被改', 'doubao-test-key' in (config.SHARED_DIR / 'settings.json').read_text(encoding='utf-8'))
+check('猛人学习的设置文件没被改', 'doubao-test-key' in (config.SIBLING_DIR / 'settings.json').read_text(encoding='utf-8'))
 config.SETTINGS_FILE = _real_sf
 
 # 打开已有字幕的 mp4：直接播放，读回字幕
 r = api.call('open', {'path': str(MEDIA / '演示视频.mp4')})
 check('打开 mp4', r['ok'] and r['plan'] == 'direct' and r['src'].startswith('file:///'), r)
-check('读回字幕', len(r['doc']['segments']) == 8 and r['doc']['lang'] == 'en')
+check('没有猛人灵修自己的字幕时，读猛人学习识别好的当起点（猛人学习的剪藏记录、保存次数清掉）', len(r['doc']['segments']) == 8 and r['doc']['lang'] == 'en'
+      and r['doc']['clip'] is None and not r['doc'].get('rev') and r['doc'].get('_from_sibling') == str(SIB), {k: r['doc'].get(k) for k in ('clip', 'rev', '_from_sibling')})
+from core import library as _lib  # noqa: E402
+_it = _lib._status(str(MEDIA / '演示视频.mp4'), {})
+check('媒体库也认猛人学习识别好的字幕（有几句、没剪藏过）', _it.get('subs') == 8 and not _it.get('clipped'), _it)
+(TMP / '老名字.mp4.猛人字幕.json').write_bytes((ROOT / 'test-media' / '演示视频.mp4.猛人字幕.json').read_bytes())
+check('不认「.猛人字幕.json」（猛人学习改名前的文件，留给猛人学习自己处理）', docs.load(str(TMP / '老名字.mp4')) is None)
 check('初始进度为 0', r['position'] == 0)
 
 # 保存修改 + 备份
@@ -113,7 +121,11 @@ d = r['doc']
 d['segments'][0]['text'] = 'Edited line'
 d['segments'].append({'start': 1.0, 'end': 2.0, 'text': '乱序插入', 'tr': ''})
 s = api.call('save', {'path': r['path'], 'doc': d})
-check('保存字幕（改名前的字幕文件存成新名字，旧文件去掉）', s['ok'] and s['stored'].endswith('.猛人学习.json') and not (MEDIA / '演示视频.mp4.猛人字幕.json').exists(), s)
+check('保存只写「.猛人灵修.json」，猛人学习的字幕文件一个字节都没变、没有改名、没有备份文件', s['ok'] and s['stored'].endswith('.猛人灵修.json')
+      and SIB.read_bytes() == SIB_BYTES and not Path(str(SIB) + '.bak').exists() and not (TMP / 'appdata' / '猛人学习' / 'library').exists(), s)
+s = api.call('save', {'path': r['path'], 'doc': dict(api.call('open', {'path': r['path']})['doc'])})
+check('保存过以后读猛人灵修自己的，不再读猛人学习的；猛人学习的仍然没变', not api.call('open', {'path': r['path']})['doc'].get('_from_sibling')
+      and SIB.read_bytes() == SIB_BYTES and s['ok'], s)
 again = api.call('open', {'path': r['path']})['doc']
 check('保存后能读回修改', again['segments'][0]['text'] == 'Edited line')
 check('保存时按时间排序', [x['start'] for x in again['segments']] == sorted(x['start'] for x in again['segments']))

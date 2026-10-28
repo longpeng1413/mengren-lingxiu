@@ -20,7 +20,6 @@ library.json（%APPDATA%\\猛人灵修）：
 识别的文件：音视频（media.MEDIA_EXT）和文档（book.LIB_EXT，猛人灵修含 txt / md）；字幕、软件自己的 json、
 和音视频同名的 txt / md（导出的文字稿）不列。
 「_」或「.」开头的文件夹（例如「_关键帧缓存」）不列。"""
-import json
 import os
 import re
 import shutil
@@ -121,13 +120,7 @@ def _status(path, positions, env=None):
     """一个文件在列表里要显示的状态：有没有字幕、剪藏过没有、看到哪里。
     给了 env（_scan_env）时还算出 pending：按一键整理默认的步骤还要做哪几步（用已经读出来的字幕文件，不多读文件）。"""
     item = {'path': path, 'name': Path(path).stem, 'ext': Path(path).suffix.lower()[1:]}
-    side = docs.stored_file(path)
-    d = None
-    if side is not None:
-        try:
-            d = json.loads(side.read_text(encoding='utf-8'))
-        except (OSError, ValueError):
-            d = None
+    d = docs.load(path)  # 没有自己的字幕文件时读猛人学习的（只读，剪藏记录已清掉）
     if d and d.get('kind') == 'book':
         chs = d.get('chapters') or []
         item['book'] = {'done': sum(1 for c in chs if (c.get('md') or '').strip()), 'total': len(chs)}
@@ -538,7 +531,11 @@ def rename(path, new_name):
 def _moved_file(old, new, sidecars_moved=False):
     """一个文件换了路径：字幕文件跟着换名字，里面记的路径、标题跟着改；以前的路径记下来（剪藏时用它找到原来的笔记）。"""
     if not sidecars_moved:
-        for a, b in ((docs.sidecar(old), docs.sidecar(new)), (docs.old_sidecar(old), docs.old_sidecar(new))):
+        if not docs.sidecar(old).exists():  # 只有猛人学习的字幕文件：复制一份成自己的（猛人学习的文件不改名、不动）
+            sib = docs.load(old)
+            if sib and sib.get('_from_sibling'):
+                docs.save(new, sib)
+        for a, b in ((docs.sidecar(old), docs.sidecar(new)),):
             for x, y in ((a, b), (a.with_name(a.name + '.bak'), b.with_name(b.name + '.bak'))):
                 if x.exists() and not y.exists():
                     try:
