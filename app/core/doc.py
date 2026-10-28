@@ -87,13 +87,46 @@ def _read_doc(path):
     return d if isinstance(d, dict) and isinstance(d.get('segments'), list) else None
 
 
+_teachers = {}
+
+
+def _teacher_maps():
+    """(猛人灵修的老师编号, {猛人学习的老师编号: 猛人灵修里同名老师的编号或空})，两份老师名单按修改时间缓存。"""
+    files = (DATA_DIR / 'teachers.json', SIBLING_DIR / 'teachers.json')
+    key = tuple(f.stat().st_mtime if f.exists() else 0 for f in files)
+    if _teachers.get('key') != key:
+        def read(f):
+            try:
+                data = json.loads(f.read_text(encoding='utf-8'))
+            except (OSError, ValueError):
+                return []
+            return [t for t in data if isinstance(t, dict) and t.get('id')] if isinstance(data, list) else []
+        mine = read(files[0])
+        by_name = {str(t.get('name') or '').strip(): t['id'] for t in mine}
+        _teachers.update(key=key, ids={t['id'] for t in mine},
+                         sib={t['id']: by_name.get(str(t.get('name') or '').strip(), '') for t in read(files[1])})
+    return _teachers['ids'], _teachers['sib']
+
+
+def _fix_teacher(d):
+    """字幕文件里记的老师编号不在猛人灵修的老师名单里（多半是从猛人学习读过来的，记的是猛人学习那边的编号）：
+    按名字换成猛人灵修里同名的老师；对不上就清空，让文件夹绑定的老师接手（2026-10-29 用户反映：老课每次都让选老师、建术语表）。"""
+    tid = d.get('teacher') or ''
+    if tid:
+        ids, sib = _teacher_maps()
+        if tid not in ids:
+            d['teacher'] = sib.get(tid, '')
+
+
 def load(media_path: str):
     """读字幕文件。没有猛人灵修自己的，就读猛人学习的当起点（只读）：
-    清掉剪藏记录（那是猛人学习库里的笔记）和保存次数 rev，标上 _from_sibling；保存时只写自己的文件。"""
+    清掉剪藏记录（那是猛人学习库里的笔记）和保存次数 rev，标上 _from_sibling；保存时只写自己的文件。
+    老师编号对不上猛人灵修老师名单的，按名字换过来（_fix_teacher）。"""
     for path in _own_paths(media_path):
         d = _read_doc(path)
         if d is not None:
             d['_stored'] = str(path)
+            _fix_teacher(d)
             return d
     for path in _sibling_paths(media_path):
         d = _read_doc(path)
@@ -101,6 +134,7 @@ def load(media_path: str):
             d['clip'] = None
             d.pop('rev', None)
             d['_stored'] = d['_from_sibling'] = str(path)
+            _fix_teacher(d)
             return d
     return None
 

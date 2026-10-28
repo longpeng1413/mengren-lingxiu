@@ -112,6 +112,17 @@ check('没有猛人灵修自己的字幕时，读猛人学习识别好的当起�
 from core import library as _lib  # noqa: E402
 _it = _lib._status(str(MEDIA / '演示视频.mp4'), {})
 check('媒体库也认猛人学习识别好的字幕（有几句、没剪藏过）', _it.get('subs') == 8 and not _it.get('clipped'), _it)
+# 从猛人学习读过来的课记的是猛人学习那边的老师编号：按名字换成猛人灵修里同名的老师，对不上就清空（让文件夹绑定的老师接手）
+(config.SIBLING_DIR / 'teachers.json').write_text(json.dumps([{'id': 'sibteach01', 'name': '同名老师'}, {'id': 'sibteach02', 'name': '这边没有的老师'}], ensure_ascii=False), encoding='utf-8')
+_lt = config.save_teacher({'name': '同名老师'})
+_seg = [{'start': 0, 'end': 1, 'text': '一句', 'tr': ''}]
+(TMP / '甲.mp4.猛人学习.json').write_text(json.dumps({'segments': _seg, 'teacher': 'sibteach01'}), encoding='utf-8')
+(TMP / '乙.mp4.猛人灵修.json').write_text(json.dumps({'segments': _seg, 'teacher': 'sibteach01'}), encoding='utf-8')
+(TMP / '丙.mp4.猛人学习.json').write_text(json.dumps({'segments': _seg, 'teacher': 'sibteach02'}), encoding='utf-8')
+(TMP / '丁.mp4.猛人灵修.json').write_text(json.dumps({'segments': _seg, 'teacher': _lt['id']}), encoding='utf-8')
+check('老师编号对不上时按名字换成猛人灵修的同名老师，对不上就清空；本来就是猛人灵修的老师不动',
+      [docs.load(str(TMP / f'{n}.mp4'))['teacher'] for n in '甲乙丙丁'] == [_lt['id'], _lt['id'], '', _lt['id']])
+config.delete_teacher(_lt['id'])
 (TMP / '老名字.mp4.猛人字幕.json').write_bytes((ROOT / 'test-media' / '演示视频.mp4.猛人字幕.json').read_bytes())
 check('不认「.猛人字幕.json」（猛人学习改名前的文件，留给猛人学习自己处理）', docs.load(str(TMP / '老名字.mp4')) is None)
 check('初始进度为 0', r['position'] == 0)
