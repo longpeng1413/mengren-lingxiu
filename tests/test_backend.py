@@ -506,6 +506,10 @@ check('课程重点：口述与课件不一致时分别保留并加整理者注'
 check('课程重点：没讲明的标（未讲明），只标一次，不补写', '标「（未讲明）」，只标这一次' in T and '不补写、不推测' in T)
 check('课程重点：对别人的看法不算自述；没有不一致时不写「老师口述」', '不是自述' in T and '没有不一致时不要写「老师口述：」' in T)
 check('查漏补缺也照这几条写', '「老师自述：」' in llm.REVIEW_SYSTEM and '（未讲明）' in llm.REVIEW_SYSTEM and '口述与课件不一致' in llm.REVIEW_SYSTEM)
+check('灵修版课程重点：原话照录、比喻和故事写完整、学员提问写清老师怎么回应、练习写清步骤，不用 AI 自己的灵性知识补，没有交易课的说法',
+      all(w in T for w in ('原样照录', '比喻和故事', '学员提问', '怎么回应', '修法、练习、冥想引导', '不用你自己的灵性'))
+      and not any(w in T + llm.REVIEW_SYSTEM for w in ('市场', '走势', 'K 线', '交易'))
+      and all(w in llm.REVIEW_SYSTEM for w in ('比喻', '故事', '学员的提问')))
 
 check('AI 提示里档案名写成「术语表：」，不当成老师名字（可以是课程体系，例如峰级）', llm.teacher_block({'name': '峰级', 'terms': ''}).startswith('术语表：峰级'))
 
