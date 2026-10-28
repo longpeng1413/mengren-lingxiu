@@ -1,10 +1,11 @@
 /* 老师工作台（2026-10-24）：和蒸馏好的老师对话。后台在 app/core/mentor.py。
    - 左栏顶上「课程 / 老师」切换；老师这边列出导入的老师和他们的对话（多个对话，保存在软件里，可搜索、改名、删除）。
-   - 回答里的出处 ［S02 19:54］ / ［S02-21］ 变成可点的小标签：点了切到「课程」、打开那节课、跳到那一秒播放；
-     鼠标停在上面显示那一秒前后的原话（或观点库那一条）。观点库里找不到的出处标红（AI 编的）。
+   - 回答里的出处 ［S02 19:54］ / ［S03 第12段］ / ［S02-21］ 变成可点的小标签：音视频点了切到「课程」、打开那节课、跳到那一秒播放；
+     文字资料（文章、对话记录）点了显示那一段原文，可以再打开那份资料。鼠标停在上面显示原话（或观点库那一条）。
+     观点库编号：S02-21 观点、S02-Y3 原话、S02-B1 比喻和故事、S02-W1 问答、S02-A1 自述。观点库里找不到的出处标红（AI 编的）。
    - 【AI 推测…】【AI 自己的看法…】用不同颜色的框。
    - 「☆ 收藏」把这条问答追加到老师文件夹里的「对话精选.md」；「★ 收藏整个对话」一次收藏还没收藏的。
-   - 蒸馏（后台在 app/core/distill.py）：从媒体库选课 → 后台逐节提取、合并、写画像 → 写进 Obsidian；进度在对话区上方和左栏。 */
+   - 蒸馏（后台在 app/core/distill.py）：从媒体库选课和文字资料 → 后台逐份提取、合并、写画像 → 写进 Obsidian 的「灵修老师」；进度在对话区上方和左栏。 */
 const M = { list: [], cur: null, chat: null, job: null, searchHits: null, quotes: {}, seq: 0,  // seq：每次打开老师 / 对话编号，晚到的旧结果作废
   distill: {}, polling: false,  // distill：正在蒸馏的老师 {老师id: {job, progress, message}}
   ov: {} };  // ov：打开过的老师的资料（来源、观点编号），圆桌讨论、主题蒸馏里认出处用 {老师id: overview}
@@ -54,7 +55,7 @@ function renderMentorList() {
   const box = $('#mentorList'), q = $('#mentorSearch').value.trim();
   const extra = typeof roundListHTML === 'function' ? roundListHTML(q) : '';
   if (!M.list.length) {
-    box.innerHTML = '<div class="mt-empty">还没有老师。<br>点上方的人像加号按钮：从媒体库的课蒸馏一位新老师，或导入 Obsidian「04、外部知识转化库/01、老师分身蒸馏资料」里已经蒸馏好的老师文件夹。</div>' + extra;
+    box.innerHTML = '<div class="mt-empty">还没有老师。<br>点上方的人像加号按钮：从媒体库的课和文章蒸馏一位新老师，或导入 Obsidian「灵修老师」里已经蒸馏好的老师文件夹。</div>' + extra;
     return;
   }
   box.innerHTML = '<div class="mt-section-label">老师</div>' + M.list.map(m => {
@@ -114,16 +115,18 @@ function citeHTML(inner, ctx = {}) {
     const nm = p.match(/^([^\sS][^\s]{0,19})\s+(S\d{2,3}.*)$/);
     if (nm && ctx.names) { who = nm[1]; p = nm[2]; mid = ctx.names[who] || ''; }
     const ov = M.ov[mid];
-    let m, sid, t = null, ok = false, aid = '';
+    let m, sid, t = null, pn = null, ok = false, aid = '';
     if ((m = p.match(/^(S\d{2,3})\s+(\d{1,2}:\d{2}(?::\d{2})?)/))) {
       sid = m[1]; t = parseTs(m[2]); ok = !!ov && ov.mentor.sources.some(s => s.sid === sid);
+    } else if ((m = p.match(/^(S\d{2,3})\s+第\s*(\d{1,5})/))) {  // 文字资料：第几段（PDF 第几页）
+      sid = m[1]; pn = +m[2]; ok = !!ov && ov.mentor.sources.some(s => s.sid === sid);
     } else if ((m = p.match(/^(S\d{2,3}-[A-Za-z0-9]+)/))) {
       aid = m[1]; sid = aid.split('-')[0];
       const a = ov && ov.atoms[aid];
-      ok = !!a; t = a ? a.t : null;
+      ok = !!a; t = a ? a.t : null; pn = a && a.p != null ? a.p : null;
     } else return esc((who ? who + ' ' : '') + p);
     const label = (who ? who + ' ' : '') + p;
-    return `<a class="cite${ok ? '' : ' bad'}" data-mid="${esc(mid || '')}" data-sid="${sid}" data-t="${t == null ? '' : t}" data-aid="${aid}"${ok ? '' : ' title="观点库和课程里找不到这个出处，可能是 AI 编的"'}>${esc(label)}</a>`;
+    return `<a class="cite${ok ? '' : ' bad'}" data-mid="${esc(mid || '')}" data-sid="${sid}" data-t="${t == null ? '' : t}" data-p="${pn == null ? '' : pn}" data-aid="${aid}"${ok ? '' : ' title="观点库和资料里找不到这个出处，可能是 AI 编的"'}>${esc(label)}</a>`;
   }).join(' ');
 }
 function answerHTML(text, ctx = {}) {
@@ -142,27 +145,28 @@ function renderMentorMsgs() {
   const box = $('#mentorMsgs');
   if (roundOn()) return renderRoundMsgs();
   if (!M.cur) {
-    box.innerHTML = '<div class="mentor-intro"><h3>老师工作台</h3><p>先点左上方的人像加号按钮：从媒体库的课蒸馏一位新老师（AI 逐节提取观点库、合并成课程蒸馏、写老师画像），或导入 Obsidian「04、外部知识转化库/01、老师分身蒸馏资料」里已经蒸馏好的老师文件夹。之后就能按老师画像和他对话：课程里讲过的都带出处，点出处跳到那节课那一秒；超出课程的会标「AI 推测」。</p></div>';
+    box.innerHTML = '<div class="mentor-intro"><h3>老师工作台</h3><p>先点左上方的人像加号按钮：从媒体库的课和文字资料（文章、对话记录）蒸馏一位新老师（AI 逐份提取观点、原话、比喻和故事、问答，合并成课程蒸馏、写老师画像），或导入 Obsidian「灵修老师」里已经蒸馏好的老师文件夹。之后就能按老师画像和他对话：资料里讲过的都带出处，点出处跳到那节课那一秒、或显示那一段原文；超出资料的会标「AI 推测」。</p></div>';
     return;
   }
   const msgs = (M.chat && M.chat.messages) || [];
   if (!msgs.length && M.cur.distill && !(M.cur.files.atoms && M.cur.files.persona)) {
     const st = M.cur.distill, run = M.distill[M.cur.mentor.id];
-    const label = { done: x => `已提取 ${x.points} 条`, todo: () => '待提取', changed: () => '字幕改过，要重新提取', missing: () => '<b style="color:var(--danger)">找不到字幕</b>' };
+    const label = { done: x => `已提取 ${x.points} 条`, todo: () => '待提取', changed: x => x.text ? '文章改过，要重新提取' : '字幕改过，要重新提取',
+      missing: x => `<b style="color:var(--danger)">${x.text ? '找不到这份资料，或读不出文字' : '找不到字幕'}</b>` };
     box.innerHTML = `<div class="mentor-intro"><h3>蒸馏「${esc(M.cur.mentor.name)}」</h3>
-      <p>${run ? '正在后台蒸馏，进度在上方。可以切到「课程」照常看课，做完会提示你。' : '还没蒸馏完（可能停下了，或者 AI 额度用完了）。做完的课都存着，点「继续蒸馏」接着做，不会重复花钱。'}
+      <p>${run ? '正在后台蒸馏，进度在上方。可以切到「课程」照常看课，做完会提示你。' : '还没蒸馏完（可能停下了，或者 AI 额度用完了）。做完的资料都存着，点「继续蒸馏」接着做，不会重复花钱。'}
       蒸馏好以后，就能在这里和他对话。</p>
       <ul class="ds-status">${st.lessons.map(x => `<li><span>${x.sid}　${esc(x.title)}</span><span class="muted">${label[x.state](x)}</span>`
-        + (run ? '' : `<button class="btn small" data-rm-sid="${x.sid}" title="这节课不用了（编号空着，不给别的课用）">去掉</button>`) + '</li>').join('')}</ul>
-      ${run ? '' : '<button class="btn primary" data-distill-go>继续蒸馏</button> <button class="btn" data-distill-edit>加课…</button>'}</div>`;
+        + (run ? '' : `<button class="btn small" data-rm-sid="${x.sid}" title="这份资料不用了（编号空着，不给别的资料用）">去掉</button>`) + '</li>').join('')}</ul>
+      ${run ? '' : '<button class="btn primary" data-distill-go>继续蒸馏</button> <button class="btn" data-distill-edit>加资料…</button>'}</div>`;
     return;
   }
   if (!msgs.length) {
-    const src = M.cur.mentor.sources.map(s => `<li>${s.sid}　${esc(s.title)}${s.found ? '' : '　<b style="color:var(--danger)">（找不到视频，右键老师「重新查找课程」）</b>'}</li>`).join('');
-    const egs = ['交易系统包括哪些方面？', '我的单笔风险应该怎么定？', '连续亏了好几笔，要不要改系统？', '你的课里有没有讲止盈怎么做？'];
+    const src = M.cur.mentor.sources.map(s => `<li>${s.sid}　${esc(s.title)}${s.text ? '<span class="muted">（文字资料）</span>' : ''}${s.found ? '' : `　<b style="color:var(--danger)">（找不到${s.text ? '这份资料' : '视频'}，右键老师「重新查找课程」）</b>`}</li>`).join('');
+    const egs = ['你最核心的教导是什么？', '我总是焦虑、停不下来，怎么办？', '和家人关系很紧张，我该怎么做？', '每天可以做什么练习？'];
     box.innerHTML = `<div class="mentor-intro"><h3>和${esc(M.cur.mentor.name)}对话</h3>
-      <p>回答按「老师画像」和他的课程资料来写：课程里讲过的都带出处（如 <a class="cite">S02 19:54</a>），点出处跳到那节课那一秒，鼠标停在上面能看到原话；超出课程的会标<span class="ai-guess" style="display:inline;padding:1px 6px;margin:0">【AI 推测】</span>。觉得好的回答点「☆ 收藏」，存进 Obsidian 的「对话精选」。</p>
-      <p>他的课程：</p><ul>${src}</ul><p>可以这样问：</p>${egs.map(q => `<button class="btn small ask-eg" data-eg="${esc(q)}">${esc(q)}</button>`).join('')}</div>`;
+      <p>这是 AI 按「老师画像」和他的资料模拟的，不是老师本人。资料里讲过的都带出处（如 <a class="cite">S02 19:54</a>、<a class="cite">S03 第12段</a>），点出处跳到那节课那一秒、或显示那一段原文，鼠标停在上面能看到原话；超出资料的会标<span class="ai-guess" style="display:inline;padding:1px 6px;margin:0">【AI 推测】</span>。觉得好的回答点「☆ 收藏」，存进 Obsidian 的「对话精选」。</p>
+      <p>他的资料：</p><ul>${src}</ul><p>可以这样问：</p>${egs.map(q => `<button class="btn small ask-eg" data-eg="${esc(q)}">${esc(q)}</button>`).join('')}</div>`;
     return;
   }
   box.innerHTML = msgs.map((m, i) => m.role === 'user'
@@ -224,10 +228,16 @@ $('#mentorNew').onclick = () => { if (M.cur) { M.chat = null; renderMentorHead()
 $('#mentorTts').onclick = () => $('#btnTts').click();  // 朗读按当前所在的区域读（tts.js 的 source）
 
 /* ---------- 出处：点了跳视频，停在上面看原话 ---------- */
-async function mentorJump(mid, sid, t) {
+async function mentorJump(mid, sid, t, p) {
   const ov = M.ov[mid] || (M.cur && M.cur.mentor.id === mid ? M.cur : null);
   const s = ov && ov.mentor.sources.find(x => x.sid === sid);
-  if (!s || !s.found) return toast(`找不到 ${sid} 的视频。可以右键老师「重新查找课程」`, { error: true });
+  if (!s || !s.found) return toast(`找不到 ${sid} 的${s && s.text ? '资料' : '视频'}。可以右键老师「重新查找课程」`, { error: true });
+  if (s.text) {  // 文字资料：显示那一段原文，可以再打开那份资料
+    let q;
+    try { q = await api('mentor_quote', { id: mid, sid, p: +p || 1 }); } catch (e) { return fail(e); }
+    return toast(`${ov.mentor.name} ${sid}《${s.title}》\n${(q.text || '（这一处没有文字）').slice(0, 400)}`,
+      { ms: 15000, action: { label: '打开这份资料', run: async () => { switchView('course'); await window.openPath(s.path); } } });
+  }
   t = +t || 0;
   switchView('course');
   if (S.path && S.path.toLowerCase() === s.path.toLowerCase() && S.mode !== 'book') seek(t, true);
@@ -236,7 +246,7 @@ async function mentorJump(mid, sid, t) {
 }
 $('#mentorMsgs').addEventListener('click', async e => {
   const c = e.target.closest('a.cite');
-  if (c) { if (!c.classList.contains('bad') && c.dataset.sid) mentorJump(c.dataset.mid || (M.cur && M.cur.mentor.id), c.dataset.sid, c.dataset.t); return; }
+  if (c) { if (!c.classList.contains('bad') && c.dataset.sid) mentorJump(c.dataset.mid || (M.cur && M.cur.mentor.id), c.dataset.sid, c.dataset.t, c.dataset.p); return; }
   if (roundOn()) return;  // 圆桌讨论、主题蒸馏里的按钮在 round.js 里处理
   const eg = e.target.closest('[data-eg]');
   if (eg) return mentorAsk(eg.dataset.eg);
@@ -266,24 +276,26 @@ $('#mentorMsgs').addEventListener('mouseover', async e => {
   const mid = c.dataset.mid || (M.cur && M.cur.mentor.id), ov = M.ov[mid];
   if (!ov) return;
   const a = c.dataset.aid && ov.atoms[c.dataset.aid];
-  if (a) { c.title = `${ov.mentor.name} ${c.dataset.aid}（${a.src}）\n${a.text}\n\n点一下跳到视频`; return; }
-  const key = mid + '@' + c.dataset.sid + '@' + c.dataset.t;
+  const isText = (ov.mentor.sources.find(s => s.sid === c.dataset.sid) || {}).text;
+  const hint = isText ? '点一下显示那一段原文' : '点一下跳到视频';
+  if (a) { c.title = `${ov.mentor.name} ${c.dataset.aid}（${a.src}）\n${a.text}\n\n${hint}`; return; }
+  const key = mid + '@' + c.dataset.sid + '@' + c.dataset.t + '@' + c.dataset.p;
   if (!M.quotes[key]) {
-    try { M.quotes[key] = await api('mentor_quote', { id: mid, sid: c.dataset.sid, t: +c.dataset.t || 0 }); } catch (_) { return; }
+    try { M.quotes[key] = await api('mentor_quote', { id: mid, sid: c.dataset.sid, t: +c.dataset.t || 0, p: +c.dataset.p || null }); } catch (_) { return; }
   }
   const q = M.quotes[key];
-  c.title = `《${q.title}》\n${q.text || '（这一处没有字幕）'}\n\n点一下跳到视频`;
+  c.title = `《${q.title}》\n${q.text || (isText ? '（这一处没有文字）' : '（这一处没有字幕）')}\n\n${hint}`;
 });
 
 /* ---------- 导入、右键菜单、搜索 ---------- */
 $('#mentorAdd').onclick = e => {
   e.stopPropagation();  // 不然窗口的 click 会马上关掉刚打开的菜单
   const r = e.currentTarget.getBoundingClientRect();
-  showCtx(r.left, r.bottom + 4, `<button class="menu-item" data-a="distill" title="AI 逐节提取观点库，再合并成课程蒸馏、写老师画像，写进 Obsidian">从媒体库的课蒸馏一位新老师…</button>
-    <button class="menu-item" data-a="import" title="Obsidian「04、外部知识转化库/01、老师分身蒸馏资料」里已经有观点库和老师画像的老师文件夹">导入已经蒸馏好的老师文件夹…</button>
+  showCtx(r.left, r.bottom + 4, `<button class="menu-item" data-a="distill" title="AI 逐份提取观点、原话、比喻和故事、问答，再合并成课程蒸馏、写老师画像，写进 Obsidian 的「灵修老师」">从媒体库的课和文章蒸馏一位新老师…</button>
+    <button class="menu-item" data-a="import" title="Obsidian「灵修老师」里已经有观点库和老师画像的老师文件夹">导入已经蒸馏好的老师文件夹…</button>
     <div class="menu-sep"></div>
     <button class="menu-item" data-a="round" title="就一个问题请几位老师一起讨论：各自回答、可以互相回应，AI 总结共识和分歧">新建圆桌讨论（几位老师一起讨论）…</button>
-    <button class="menu-item" data-a="topic" title="选一个主题和几位老师，AI 比较他们分别怎么说，写进 Obsidian 的「02、主题蒸馏资料」">新建主题蒸馏（比较几位老师）…</button>`, m => {
+    <button class="menu-item" data-a="topic" title="选一个主题和几位老师，AI 比较他们分别怎么说，写进 Obsidian 的「灵修主题」">新建主题蒸馏（比较几位老师）…</button>`, m => {
     $('[data-a=distill]', m).onclick = () => { m.hidden = true; openDistill({}); };
     $('[data-a=import]', m).onclick = () => { m.hidden = true; importMentor(); };
     $('[data-a=round]', m).onclick = () => { m.hidden = true; openMulti('round'); };
@@ -334,10 +346,10 @@ function libFolders(nodes = S.lib, depth = 0, out = []) {
   for (const n of nodes || []) if (n.type === 'folder') { out.push({ path: n.path, name: n.name, depth }); libFolders(n.children, depth + 1, out); }
   return out;
 }
-function lessonsUnder(node, out = []) {
+function lessonsUnder(node, out = []) {  // 音视频课和文字资料（文章、对话记录、书）都能选
   for (const c of node.children || []) {
     if (c.type === 'folder') lessonsUnder(c, out);
-    else if (!c.book && !BOOK_EXT.includes(c.ext)) out.push(c);
+    else out.push(c);
   }
   return out;
 }
@@ -356,7 +368,7 @@ async function openDistill(o) {
   const have = new Set((st ? st.lessons : []).map(x => x.path.toLowerCase()));
   const all = st ? folders.filter(f => st.lessons.length && st.lessons.every(x => insideDir(x.path, f.path))) : [];
   const dlg = $('#dlgDistill');
-  $('#dsTitle').textContent = upd ? `更新蒸馏：${upd.name}` : '从媒体库的课蒸馏一位老师';
+  $('#dsTitle').textContent = upd ? `更新蒸馏：${upd.name}` : '从媒体库的课和文章蒸馏一位老师';
   $('#dsOk').textContent = upd ? '更新蒸馏' : '开始蒸馏';
   $('#dsName').value = upd ? upd.name : (o.name || '');
   $('#dsName').disabled = !!upd;
@@ -366,17 +378,17 @@ async function openDistill(o) {
   const picked = () => boxes().filter(b => b.checked && !b.disabled).map(b => b.dataset.path);
   const count = () => {
     const n = picked().length;
-    $('#dsCount').textContent = upd ? `已经有 ${have.size} 节，这次加 ${n} 节` : `已选 ${n} 节`;
+    $('#dsCount').textContent = upd ? `已经有 ${have.size} 份，这次加 ${n} 份` : `已选 ${n} 份`;
   };
   const fill = () => {
     const node = libNode($('#dsFolder').value);
     const ls = node ? lessonsUnder(node) : [];
     $('#dsList').innerHTML = ls.length ? ls.map(n => {
-      const inside = have.has(n.path.toLowerCase()), ok = n.subs > 0;
-      const why = inside ? '已经在这位老师里' : ok ? (n.summary ? '有字幕和课程重点' : '有字幕（还没有课程重点）') : '还没有字幕，先生成字幕';
+      const text = BOOK_EXT.includes(n.ext), inside = have.has(n.path.toLowerCase()), ok = text || n.subs > 0;
+      const why = inside ? '已经在这位老师里' : text ? '文字资料（按段落作出处）' : ok ? (n.summary ? '有字幕和课程重点' : '有字幕') : '还没有字幕，先生成字幕';
       return `<label class="ds-item${ok || inside ? '' : ' off'}"><input type="checkbox" data-path="${esc(n.path)}" ${inside || ok ? 'checked' : ''} ${inside || !ok ? 'disabled' : ''}>`
         + `<span class="ds-name">${esc(n.name)}</span><small class="muted">${why}</small></label>`;
-    }).join('') : '<div class="muted">这个文件夹里没有音视频课程</div>';
+    }).join('') : '<div class="muted">这个文件夹里没有音视频课程，也没有文章、对话记录</div>';
     count();
   };
   let tTimer = null;
@@ -399,7 +411,7 @@ async function openDistill(o) {
   $('#dsNone').onclick = () => { boxes().forEach(b => { if (!b.disabled) b.checked = false; }); count(); };
   $('#dsOk').onclick = e => {
     if (!upd && !$('#dsName').value.trim()) { e.preventDefault(); toast('请填老师的名字', { error: true }); return; }
-    if (!upd && !picked().length) { e.preventDefault(); toast('请至少勾选一节有字幕的课', { error: true }); }
+    if (!upd && !picked().length) { e.preventDefault(); toast('请至少勾选一份资料（有字幕的课，或文章、对话记录）', { error: true }); }
   };
   fill(); target();
   dlg.returnValue = '';

@@ -1,5 +1,5 @@
 'use strict';
-/* 猛人学习 · 界面 */
+/* 猛人灵修 · 界面 */
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -16,7 +16,7 @@ const LAYOUT_KEYS = ['font_size', 'line_height', 'cue_gap', 'cue_width', 'font_f
 /* ---------------------------------------------------------------- 工具 ---- */
 async function api(name, body = {}) {
   const bridge = window.pywebview && window.pywebview.api;
-  if (!bridge) throw new Error('请从「猛人学习」程序里打开这个界面');
+  if (!bridge) throw new Error('请从「猛人灵修」程序里打开这个界面');
   let d;
   try { d = await bridge.call(name, body); } catch (e) { throw new Error('后台出错：' + (e.message || e)); }
   if (!d || !d.ok) throw new Error((d && d.error) || '出错了');
@@ -115,7 +115,7 @@ const THEMES = [
   { id: 'dim', name: '深灰', bg: '#24252a', fg: '#ecebe7' },
   { id: 'light', name: '浅色', bg: '#fbf9f5', fg: '#22201c' },
 ];
-const ACCENTS = ['#e8b04a', '#ff8a3d', '#ff5a5a', '#b48cff', '#4c9bff', '#3ccf91', '#ece8df'];
+const ACCENTS = ['#3cc8c0', '#e8b04a', '#ff8a3d', '#ff5a5a', '#b48cff', '#4c9bff', '#ece8df'];
 const FONTS = {
   yahei: '"Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", sans-serif',
   hei: 'SimHei, "Heiti SC", sans-serif',
@@ -128,7 +128,7 @@ const FONTS = {
 function applyLook() {
   const s = S.settings, root = document.documentElement.style;
   document.documentElement.dataset.theme = s.theme || 'dark';
-  root.setProperty('--accent', s.accent || '#e8b04a');
+  root.setProperty('--accent', s.accent || '#3cc8c0');
   root.setProperty('--cue-size', (s.font_size || 17) + 'px');
   root.setProperty('--cue-line', s.line_height || 1.6);
   root.setProperty('--cue-gap', (s.cue_gap ?? 9) + 'px');
@@ -275,7 +275,8 @@ function folderHTML(n, depth, parent, q, chain) {
       <svg class="caret" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
       <span class="lib-gname">${esc(n.name)}</span>
       ${t ? `<span class="lib-gteacher" title="这个文件夹（和没单独绑定的下层文件夹）里的课用这位老师的术语表">${esc(t.name)}</span>` : ''}
-      ${n.summary === 'off' ? '<span class="lib-gteacher" title="这个文件夹（和没单独设置的下层文件夹）里的课不写课程重点：一键整理默认不勾，后台整理和命令行跳过">不写重点</span>'
+      ${n.summary === 'on' ? '<span class="lib-gteacher" title="猛人灵修默认不写课程重点；这个文件夹（和没单独设置的下层文件夹）里的课照常写">写重点</span>'
+        : n.summary === 'off' ? '<span class="lib-gteacher" title="这个文件夹（和没单独设置的下层文件夹）里的课不写课程重点：一键整理默认不勾，后台整理和命令行跳过">不写重点</span>'
     : n.summary === 'on' ? '<span class="lib-gteacher" title="上层设了不写课程重点，这个文件夹单独设成要写">写重点</span>' : ''}
       <span class="lib-gcount">${n.count}</span>
       <button class="lib-more" data-more="${esc(n.path)}" title="更多">⋯</button>
@@ -347,11 +348,11 @@ function folderMenu(path, x, y) {
   showCtx(x, y, `<div class="menu-label">这个文件夹的老师 / 术语表</div>
     <select data-a="teacher">${teacherOptions(n.teacher, n.top ? '不指定' : '不指定（沿用上一层）')}</select>
     <button class="menu-item" data-a="bgall" title="定好一套整理规则（做哪几步、老师、豆包模型和账号），把这个文件夹（含子文件夹）里还没整理完的课一节一节排进后台整理">整个文件夹排进后台整理…</button>
-    <button class="menu-item" data-a="nosum" title="灵修类这种逐字稿课程：只识别、校对，直接蒸馏老师。打开后一键整理默认不勾「生成课程重点」，后台整理和命令行跳过课程重点和查漏补缺，媒体库不再因为没写重点标「未整理完」。下层文件夹沿用，也能单独改回来">${n.no_summary ? '✓ ' : ''}这里的课不写课程重点</button>
+    <button class="menu-item" data-a="nosum" title="猛人灵修默认不写课程重点（灵修课只识别、校对，直接蒸馏老师）：一键整理默认不勾「生成课程重点」，后台整理和命令行跳过课程重点和查漏补缺。点一下取消勾选，这个文件夹的课就照常写。下层文件夹沿用，也能单独改">${n.no_summary ? '✓ ' : ''}这里的课不写课程重点</button>
     <button class="menu-item" data-a="rename">重命名…</button>
     <button class="menu-item" data-a="rescan">重新扫描</button>
     <button class="menu-item" data-a="reveal">在资源管理器中打开</button>
-    <button class="menu-item" data-a="distill" title="AI 逐节提取观点库，再合并成课程蒸馏、写老师画像，写进 Obsidian；做完能在老师工作台里和这位老师对话">用这个文件夹的课蒸馏一位老师…</button>
+    <button class="menu-item" data-a="distill" title="AI 逐份提取观点、原话、比喻和故事、问答，再合并成课程蒸馏、写老师画像，写进 Obsidian 的「灵修老师」；做完能在老师工作台里和这位老师对话">用这个文件夹的课和文章蒸馏一位老师…</button>
     ${n.top ? '<button class="menu-item danger" data-a="remove">从媒体库移除（不删除文件）</button>' : ''}`, m => {
     $('[data-a=distill]', m).onclick = () => { m.hidden = true; switchView('mentor'); openDistill({ folder: n.path, name: n.name }); };
     $('[data-a=teacher]', m).onchange = async e => {
@@ -402,7 +403,7 @@ async function openFolderBg(n) {
   let info;
   try { info = await api('folder_rule', { path: n.path }); } catch (e) { fail(e); return; }
   const dlg = $('#dlgFolderBg'), rule = info.rule || {};
-  const has = new Set(rule.steps || FB_DEFAULT.filter(s => !(info.no_summary && (s === 'summary' || s === 'review'))));
+  const has = new Set(rule.steps || FB_DEFAULT.filter(s => !(info.no_summary && (s === 'summary' || s === 'review')) && (s !== 'frames' || S.settings.auto_frames)));
   $('#fbTitle').textContent = `整个文件夹排进后台整理：${n.name}`;
   $('#fbInfo').textContent = `里面有 ${info.lessons} 节音视频${info.books ? `（另有 ${info.books} 本书 / 文档，步骤不一样，这次不排）` : ''}。`
     + (info.rule ? '下面是上次定的规则，可以改。' : '定好下面的规则，点「开始排队」。');
@@ -591,7 +592,7 @@ window.openPath = async function (path) {
     S.noSummary = !!d.no_summary;
     $('#btnUndo').disabled = true;
     $('#empty').hidden = true; $('#stageMain').hidden = false;
-    $('#fileTitle').textContent = d.doc.title; $('#fileTitle').title = d.path; document.title = `${d.doc.title} - 猛人学习`;
+    $('#fileTitle').textContent = d.doc.title; $('#fileTitle').title = d.path; document.title = `${d.doc.title} - 猛人灵修`;
     if (summaryEditing) toggleSummaryEdit(false);
     setupPlayer(d);
     renderTeacherSelect(); renderCues(); renderSummary(); renderChat(); renderFrames(); updateButtons(); updateSaveLabel();
@@ -649,7 +650,7 @@ function openBook(d) {
   S.bookChecked = new Set();
   setMode('book');
   $('#empty').hidden = true;
-  $('#fileTitle').textContent = d.doc.title; $('#fileTitle').title = d.path; document.title = `${d.doc.title} - 猛人学习`;
+  $('#fileTitle').textContent = d.doc.title; $('#fileTitle').title = d.path; document.title = `${d.doc.title} - 猛人灵修`;
   $('#bkTitle').value = d.doc.title || ''; $('#bkAuthor').value = d.doc.author || '';
   const s = bookShift();
   $('#bkFirst').value = s === null ? '' : s + 1;
@@ -766,7 +767,7 @@ async function bookClip() {
     await flushSave();
     let r = await api('book_clip', { doc: S.doc });
     if (r.conflict) {
-      if (!confirm(`下面这些笔记上次剪藏后在 Obsidian 里改过：\n${r.changed.join('\n')}\n\n继续剪藏会用软件里的内容更新软件写的那些小节：你在这些小节里直接改的文字会没掉。你自己加的小节、标注（> [!…]）和属性会保留。改过的笔记会先备份到：\n%APPDATA%\\猛人学习\\backups\\笔记\n\n要继续剪藏吗？`)) {
+      if (!confirm(`下面这些笔记上次剪藏后在 Obsidian 里改过：\n${r.changed.join('\n')}\n\n继续剪藏会用软件里的内容更新软件写的那些小节：你在这些小节里直接改的文字会没掉。你自己加的小节、标注（> [!…]）和属性会保留。改过的笔记会先备份到：\n%APPDATA%\\猛人灵修\\backups\\笔记\n\n要继续剪藏吗？`)) {
         toast('没有剪藏，Obsidian 里的笔记保持不变');
         return true;
       }
@@ -1483,13 +1484,13 @@ function openPipeline() {
   $$('input[name=plLang]').forEach(r => r.onchange = sync);
   sync();
   $('#plSummary').checked = !S.noSummary;  // 媒体库文件夹设了「不写课程重点」时默认不勾
-  $('#plSummaryText').textContent = S.noSummary ? '生成课程重点（这个文件夹设了不写，要写这一节就勾上）' : '生成课程重点';
+  $('#plSummaryText').textContent = S.noSummary ? '生成课程重点（这个文件夹不写课程重点，要写这一节就勾上）' : '生成课程重点';
   $('#plClip').checked = false;
   $('#plTerms').checked = true;
   termsLabel();
   const vid = !!(S.info && S.info.has_video), nShots = (S.doc.frames || []).length;
   $('#plFrames').disabled = !vid;
-  $('#plFrames').checked = vid && !nShots && providerReady(S.settings.vision);
+  $('#plFrames').checked = vid && !nShots && !!S.settings.auto_frames && providerReady(S.settings.vision);  // 猛人灵修默认不找插图
   $('#plRecheck').disabled = !vid;
   $('#plRecheck').checked = vid && providerReady(S.settings.vision);
   $('#plFramesLabel').textContent = !vid ? '找关键帧（这是音频文件，没有画面）'
@@ -1697,7 +1698,7 @@ async function openTerms() {
     $('#tmTitle').textContent = '这节课的新术语';
     $('#tmAdd').textContent = '加入术语表';
     $('#tmInfo').innerHTML = `加进 <b>${esc(t.name || '')}</b> 的术语表` +
-      (file ? `：写在「${esc(file)}」末尾的「逐课补充（猛人学习）」一节，写之前自动备份。` : '（老师档案里的术语）。') +
+      (file ? `：写在「${esc(file)}」末尾的「逐课补充」一节，写之前自动备份。` : '（老师档案里的术语）。') +
       '只记录名称，不写定义。不对的去掉勾，写错的可以直接改；点时间可以回听。';
   } else {  // 新老师的第一节课：填老师名字，建术语表
     let plan = { folder: '', teachers: [], binds: [] };
@@ -1705,7 +1706,7 @@ async function openTerms() {
     $('#tmTitle').textContent = '建立这位老师的术语表';
     $('#tmAdd').textContent = '建立术语表';
     $('#tmInfo').innerHTML = '这节课还没有老师的术语表。勾选这节课的专用术语（不对的去掉勾，写错的直接改，点时间可以回听），填上老师名字：'
-      + (plan.folder ? `软件会在 Obsidian「02、规则体系/02、课程专用规则」里建一份「老师名课程术语表」（结构和峰级那份一样），关联到这位老师；`
+      + (plan.folder ? `软件会在 Obsidian「灵修术语表」文件夹里建一份「老师名术语表」，关联到这位老师；`
         : '还没有设置 Obsidian 库，术语先记在软件的老师档案里；')
       + '再把下面选的文件夹绑定这位老师。以后这个文件夹里的课，识别时把这些术语当热词、校对时参考，每节课整理完继续找新术语让你勾选。只记录名称，不写定义。';
     $('#tmNames').innerHTML = plan.teachers.map(n => `<option value="${esc(n)}">`).join('');
@@ -1747,7 +1748,7 @@ async function addTerms(fresh) {  // fresh：{name, bind} 新老师的第一节�
       S.doc.terms_pending = null; markDirty(); save();
       if (r.groups) { S.lib = r.groups; renderLibrary(); }
       renderTeacherSelect();
-      const where = r.file ? `「${r.file.split(/[\\/]/).pop()}」（Obsidian「02、规则体系/02、课程专用规则」）` : '软件的老师档案';
+      const where = r.file ? `「${r.file.split(/[\\/]/).pop()}」（Obsidian「灵修术语表」）` : '软件的老师档案';
       toast(`${r.created ? '已建立' : '已加进'}「${r.name}」的术语表：新术语 ${r.terms} 条，识别错误 ${r.errors} 条，写在${where}。`
         + (r.bound ? `以后「${r.bound.split(/[\\/]/).pop()}」里的课都用这位老师。` : '') + '下次识别和校对就会用上', { ms: 10000 });
     } catch (e) { fail(e); }
@@ -1768,7 +1769,7 @@ async function doClip() {
     let r = await api('clip', { doc: S.doc });
     if (r.conflict) {
       const name = r.path.split(/[\\/]/).pop();
-      if (!confirm(`「${name}」上次剪藏后在 Obsidian 里改过（最后修改 ${r.modified}）。\n\n继续剪藏会用软件里的内容更新「课程重点」和「完整字幕」：你在这两块里直接改的文字会没掉。你自己加的小节、标注（> [!…]）、属性和状态会保留。旧笔记会先备份到：\n%APPDATA%\\猛人学习\\backups\\笔记\n\n要继续剪藏吗？`)) {
+      if (!confirm(`「${name}」上次剪藏后在 Obsidian 里改过（最后修改 ${r.modified}）。\n\n继续剪藏会用软件里的内容更新「课程重点」和「完整字幕」：你在这两块里直接改的文字会没掉。你自己加的小节、标注（> [!…]）、属性和状态会保留。旧笔记会先备份到：\n%APPDATA%\\猛人灵修\\backups\\笔记\n\n要继续剪藏吗？`)) {
         toast('没有剪藏，Obsidian 里的笔记保持不变');
         return true;
       }
@@ -2618,7 +2619,7 @@ function bind() {
   $('#setSave').onclick = () => saveSettings(true);
   $('#resetTemplate').onclick = () => { $('#summaryTemplate').value = S.defaultTemplate; };
   $$('[data-dir]').forEach(b => b.onclick = () => api('open_dir', { which: b.dataset.dir }).catch(fail));
-  $('#aboutHome').onclick = e => { e.preventDefault(); api('reveal', { target: 'https://github.com/longpeng1413/mengren-learning' }).catch(fail); };
+  $('#aboutHome').onclick = e => { e.preventDefault(); api('reveal', { target: 'https://github.com/longpeng1413/mengren-lingxiu' }).catch(fail); };
   $$('[data-test]').forEach(b => b.onclick = async () => {
     const out = b.parentElement.querySelector('.test-result');
     out.className = 'test-result'; out.textContent = '先保存设置，再测试…';
@@ -2786,6 +2787,7 @@ function bind() {
   showRecent($('#recentList'));
   loadLibrary();
   api('about').then(a => {
+    if (a.sibling && a.sibling.length) toast('第一次打开：已从猛人学习带过来 AI 登录、豆包语音密钥和「哪件事用哪家 AI」的选择。媒体库、老师、Obsidian 位置没有带，请在这里自己设。', { ms: 12000 });
     if (a.bundled) toast('已自动导入软件文件夹里附带的设置（AI 密钥、ChatGPT 登录、老师和术语表等）。那个设置文件已改名为「…（已导入，可删除）」，建议删掉它。', { ms: 12000 });
   }).catch(() => {});
   $('#stageMain').hidden = true; $('#empty').hidden = false;

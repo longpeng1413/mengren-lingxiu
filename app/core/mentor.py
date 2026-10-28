@@ -1,16 +1,18 @@
 """老师工作台（2026-10-24，用户要求「AI 按老师画像，忠实地用老师的知识和我对话」）。
 
-一位「老师」= Obsidian 里 `04、外部知识转化库/01、老师分身蒸馏资料/老师名/` 文件夹，里面有蒸馏好的：
-- `…观点库….md`：逐节提取的观点表（编号 S01-05、出处 S01 05:19、类型），开头「来源」表把 S01… 对应到课程笔记；
-- `…老师画像….md`：给 AI 的扮演规则和老师的信念、思路、比喻、风格（第一节就是规则：出处怎么标、超出课程怎么标）；
+一位「老师」= Obsidian 里 `灵修老师/老师名/` 文件夹（猛人灵修；distill.MENTOR_ROOT），里面有蒸馏好的：
+- `…观点库….md`：逐节提取的表（编号 S01-05 观点、S01-Y1 原话、S01-B1 比喻和故事、S01-W1 问答、S01-A1 自述；
+  出处 S01 05:19 是音视频的时间，S01 第12段 是文字资料的段落），开头「来源」表把 S01… 对应到课程笔记或文字资料；
+- `…老师画像….md`：给 AI 的扮演规则和老师的信念、怎么回应人、语录、比喻和故事、风格（第一节就是规则）；
 - `…课程蒸馏….md`（可选）：整体体系。
 这些文件以 Obsidian 里的为准，软件每次读最新的，不另存副本（和术语表文件一样）。
 
-对话时交给 AI 的资料：老师画像 + 课程蒸馏 + 观点库（少就全给，多就挑和问题相关的）+ 和问题相关的课程原文片段
-（来自猛人学习的字幕文件，带时间），所以回答里的出处能在界面上点开、跳到那节课那一秒。
+对话时交给 AI 的资料：老师画像 + 课程蒸馏 + 观点库（少就全给，多就挑和问题相关的）+ 和问题相关的原文片段
+（音视频来自和猛人学习共用的字幕文件，带时间；文字资料按段落），所以回答里的出处能在界面上点开：
+音视频跳到那节课那一秒，文字资料显示那一段原文、可以打开那份资料。
 挑「相关」用的是本机的字词重合打分，不联网、不花钱。
 
-对话记录存在 `%APPDATA%\\猛人学习\\mentors\\老师id\\chats\\`（用户的资料，不自动删；界面上能删单个对话或全部）；
+对话记录存在 `%APPDATA%\\猛人灵修\\mentors\\老师id\\chats\\`（用户的资料，不自动删；界面上能删单个对话或全部）；
 用户点「收藏」的回答追加到老师文件夹里的 `对话精选.md`，写之前备份到 `backups\\对话精选`（留 30 份）。
 """
 import json
@@ -22,7 +24,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import config, doc as docs
+from . import book, config, doc as docs
 
 MENTOR_DIR = config.DATA_DIR / 'mentors'
 FAVORITES = '对话精选.md'
@@ -31,9 +33,13 @@ ATOMS_ALL_LIMIT = 40000     # 观点库不超过这么多字就整份交给 AI�
 ATOMS_PICK = 40
 WINDOWS_PICK = 10
 WINDOW_SECONDS = 45         # 字幕按约 45 秒一段切成原文片段
+WINDOW_CHARS = 400          # 文字资料按约 400 字（几段连在一起）切成原文片段
 SRC_RE = re.compile(r'^\|\s*(S\d{2,3})\s*\|\s*(.*?)\s*\|\s*(\[\[.+?\]\]|[^|\n]*?)\s*\|', re.M)  # 第三格是 [[笔记]]，没剪藏的课是说明文字
 ROW_RE = re.compile(r'^\|\s*(S\d{2,3}-[A-Za-z0-9]+)\s*\|(.+)\|\s*$', re.M)
 TIME_RE = re.compile(r'(S\d{2,3})\s+(\d{1,2}:\d{2}(?::\d{2})?)')
+PARA_RE = re.compile(r'(S\d{2,3})\s+第\s*(\d{1,5})(?:\s*[–\-~～]\s*\d{1,5})?\s*([段页])')
+KIND_OF = {'A': '自述', 'Y': '原话', 'B': '比喻和故事', 'W': '问答'}   # 编号里的字母（distill.PREFIX 反过来）
+NOTE_LABEL = {'原话': '在讲：', '比喻和故事': '用来讲：', '问答': '回应方式：'}  # 每种条目第二格叫什么
 
 
 class MentorError(Exception):
@@ -83,20 +89,76 @@ def parse_sources(md):
 
 
 def parse_atoms(md):
-    """观点库里的每一行：观点表（编号 | 观点 | 条件 | 出处 | 类型）和老师自述表（编号 | 内容 | 出处）。"""
+    """观点库里的每一行，按编号的字母认是哪张表：
+    观点（S01-03 | 内容 | 条件 | 出处 | 类型）、原话（S01-Y1 | 原话 | 在讲什么 | 出处）、比喻和故事（S01-B1 | 内容 | 用来讲什么 | 出处）、
+    问答（S01-W1 | 学员问 | 老师怎么回应 | 回应方式 | 出处）、自述（S01-A1 | 内容 | 出处）。
+    t 是音视频的秒数，p 是文字资料的第几段（页），unit 是「段」或「页」。"""
     out = {}
     for m in ROW_RE.finditer(md):
         cells = [c.strip() for c in m.group(2).split('|')]
         aid = m.group(1)
-        if len(cells) >= 4:
+        letter = re.sub(r'\d', '', aid.split('-', 1)[1]).upper()
+        kind = KIND_OF.get(letter)
+        if kind == '问答' and len(cells) >= 4:
+            text, cond, src = f'问：{cells[0]}　答：{cells[1]}', cells[2], cells[3]
+        elif kind in ('原话', '比喻和故事') and len(cells) >= 3:
+            text, cond, src = cells[0], cells[1], cells[2]
+        elif kind and len(cells) >= 2:  # 自述（和猛人学习蒸馏的一样）
+            text, cond, src = cells[0], '', cells[1]
+        elif not kind and len(cells) >= 4:
             text, cond, src, kind = cells[0], cells[1], cells[2], cells[3]
-        elif len(cells) >= 2:
-            text, cond, src, kind = cells[0], '', cells[1], '自述'
         else:
             continue
-        tm = TIME_RE.search(src)
+        tm, pm = TIME_RE.search(src), PARA_RE.search(src)
         out[aid] = {'id': aid, 'sid': aid.split('-')[0], 'text': text, 'cond': '' if cond in ('—', '-') else cond, 'src': src, 'kind': kind,
-                    't': parse_time(tm.group(2)) if tm else None}
+                    't': parse_time(tm.group(2)) if tm else None, 'p': int(pm.group(2)) if pm and not tm else None,
+                    'unit': pm.group(3) if pm and not tm else ''}
+    return out
+
+
+def atom_line(a):
+    """交给 AI 的一行：- [编号]（出处，类型）内容　条件：…"""
+    return (f'- [{a["id"]}]（{a["src"]}，{a["kind"]}）{a["text"]}'
+            + (f'　{NOTE_LABEL.get(a["kind"], "条件：")}{a["cond"]}' if a['cond'] else ''))
+
+
+# --------------------------------------------------------- 文字资料 ----
+_units_cache = {}
+
+
+def is_text(path):
+    """文字资料（文章、对话记录、书）：按段落作出处；其余是音视频（按字幕时间）。"""
+    return Path(str(path or '')).suffix.lower() in book.DOC_EXT
+
+
+def text_units(path):
+    """文字资料按段落编号：每个非空行算一段（对话记录一般一行一句）；PDF 按页（PDF 的换行不是分段）。
+    返回 {title, unit: '段' | '页', units: [{n, text}]}，按文件修改时间缓存（最多 30 份）。"""
+    p = os.path.abspath(str(path))
+    st = os.stat(p)
+    key = (p.lower(), st.st_mtime, st.st_size)
+    hit = _units_cache.get(key)
+    if hit:
+        return hit
+    info = book.read(p)
+    units = []
+    if info.get('kind') == 'pdf':
+        unit = '页'
+        for pg in info['pages']:
+            text = re.sub(r'\s+', ' ', pg.get('text') or '').strip()
+            if text:
+                units.append({'n': pg['n'], 'text': text})
+    else:
+        unit = '段'
+        for pg in info['pages']:
+            for line in (pg.get('text') or '').split('\n'):
+                line = line.strip()
+                if line:
+                    units.append({'n': len(units) + 1, 'text': line})
+    out = {'title': Path(p).stem, 'unit': unit, 'units': units}
+    if len(_units_cache) >= 30:
+        _units_cache.clear()
+    _units_cache[key] = out
     return out
 
 
@@ -164,20 +226,20 @@ def _load_json(path, default=None):
         return default
 
 
-KB_DIR, MENTOR_SUB = '04、外部知识转化库', '01、老师分身蒸馏资料'
+MENTOR_ROOT = '灵修老师'  # 和 distill.MENTOR_ROOT 一样（这里不引用 distill，免得互相引用）
 
 
 def _relocate(m):
-    """老师文件夹不在记下的位置了：知识库 2026-10-24 把老师文件夹挪进了 `04、外部知识转化库/01、老师分身蒸馏资料/`，
-    按老位置推出新位置（再看设置里的 Obsidian 库），找到就改记录。"""
+    """老师文件夹不在记下的位置了（例如换了 Obsidian 库、库挪了位置）：在设置里的 Obsidian 库的
+    「灵修老师/老师名」找，找到就改记录。"""
     f = m.get('folder') or ''
     if not f or os.path.isdir(f):
         return m
     p = Path(f)
-    cands = [q / MENTOR_SUB / p.name for q in p.parents if q.name == KB_DIR][:1]
+    cands = []
     v = (config.load().get('obsidian') or {}).get('vault') or ''
     if v:
-        cands.append(Path(v) / KB_DIR / MENTOR_SUB / p.name)
+        cands.append(Path(v) / MENTOR_ROOT / p.name)
     for c in cands:
         if c.is_dir():
             m['folder'] = str(c)
@@ -248,7 +310,7 @@ def resolve_sources(folder):
         video = _frontmatter_video(note) if note else ''
         if not (video and os.path.isfile(video)) and known.get(s['sid']):
             video = os.path.normpath(known[s['sid']])
-        out.append(dict(s, notePath=str(note) if note else '', path=video, found=bool(video and os.path.isfile(video))))
+        out.append(dict(s, notePath=str(note) if note else '', path=video, found=bool(video and os.path.isfile(video)), text=bool(video) and is_text(video)))
     return out
 
 
@@ -286,7 +348,7 @@ def overview(mid):
     f = files_of(m['folder'])
     atoms = parse_atoms(_read(f['atoms']))
     return {'mentor': m, 'files': {k: str(v) if v else '' for k, v in f.items()},
-            'atoms': {k: {'src': v['src'], 'text': v['text'], 't': v['t'], 'sid': v['sid']} for k, v in atoms.items()}}
+            'atoms': {k: {'src': v['src'], 'text': v['text'], 't': v['t'], 'p': v['p'], 'sid': v['sid'], 'kind': v['kind']} for k, v in atoms.items()}}
 
 
 # ------------------------------------------------------------ 找相关资料 ----
@@ -295,11 +357,41 @@ def _grams(text):
     return {t[i:i + 2] for i in range(len(t) - 1)} or ({t} if t else set())
 
 
+def win_label(w):
+    """原文片段的出处：音视频「S02 01:00–01:45」，文字资料「S03 第12–14段」。"""
+    if w.get('unit'):
+        return f'{w["sid"]} 第{w["start"]}{w["unit"]}' if w['start'] == w['end'] else f'{w["sid"]} 第{w["start"]}–{w["end"]}{w["unit"]}'
+    return f'{w["sid"]} {_ts(w["start"])}–{_ts(w["end"])}'
+
+
+def _text_windows(s):
+    try:
+        t = text_units(s['path'])
+    except Exception:  # noqa: BLE001  读不出就跳过
+        return []
+    out, cur = [], None
+    for u in t['units']:
+        if cur is None:
+            cur = {'sid': s['sid'], 'start': u['n'], 'end': u['n'], 'text': u['text'], 'unit': t['unit']}
+        else:
+            cur['end'] = u['n']
+            cur['text'] += '\n' + u['text']
+        if len(cur['text']) >= WINDOW_CHARS or t['unit'] == '页':
+            out.append(cur)
+            cur = None
+    if cur:
+        out.append(cur)
+    return out
+
+
 def _windows(m):
-    """字幕切成约 45 秒一段的原文片段：[{sid, start, end, text}]"""
+    """原文切成片段：字幕约 45 秒一段 [{sid, start, end, text}]（秒）；文字资料约 400 字一段（start / end 是段号，unit 是「段」或「页」）。"""
     out = []
     for s in m.get('sources') or []:
         if not s.get('path'):
+            continue
+        if is_text(s['path']):
+            out += _text_windows(s)
             continue
         try:
             d = docs.load(s['path']) or {}
@@ -342,11 +434,13 @@ def rank(query, items, key, k):
 
 
 CHAT_RULES = (
-    '1. 严格按上面「老师画像」第一节的规则回答，用老师的思路和说话方式。\n'
-    '2. 出处只能写成 ［S02 19:54］（课程原文时间）或 ［S02-21］（观点库编号），而且只能引用上面给出的编号和时间，不许编造出处。\n'
-    '3. 课程里没讲的，按规则标【AI 推测：……不是课程内容】，说清从哪几条推出来；推不出来就照实说课程没讲。\n'
+    '1. 严格按上面「老师画像」第一节的规则回答，用老师的思路、语气和回应方式（见画像「他怎么回应一个人的困惑」「说话风格」）：先听懂这个人、回应他的处境和感受，再讲道理。\n'
+    '2. 出处只能写成 ［S02 19:54］（音视频原文时间）、［S03 第12段］（文字资料的段落，PDF 是页）或 ［S02-21］（观点库编号，S02-Y3 原话、S02-B1 比喻和故事、S02-W1 问答），而且只能引用上面给出的编号、时间和段落，不许编造出处。\n'
+    '3. 资料里没讲的，按规则标【AI 推测：……不是他资料里的内容】，说清从哪几条推出来；推不出来就照实说资料里没讲。\n'
     '4. 用户没要求时，不加 AI 自己的观点；用户要求时另起一段标【AI 自己的看法，不代表老师】。\n'
-    '5. 用中文，先结论后理由，最后给能马上做的事；不给具体的买卖建议。'
+    '5. 用中文；能用老师的原话、比喻和故事就用（照录，标出处），不要把他的话改写成书面腔或 AI 腔，不列一大串要点；可以在最后给一个马上能做的练习或觉察。\n'
+    '6. 对方流露严重痛苦、绝望或自伤、轻生的念头时，先关心、接住他，明确建议他联系身边信任的人和专业心理援助（当地心理援助热线、医院心理科；有紧急危险打当地急救电话），不要只用灵性道理带过。\n'
+    '7. 被问到你是不是老师本人时照实说：你是 AI 按老师的资料模拟的，不是他本人。'
 )
 
 
@@ -364,13 +458,13 @@ def build_messages(m, history, question, extra=''):
     wins = rank(query, _windows(m), lambda w: w['text'], WINDOWS_PICK)
     wins.sort(key=lambda w: (w['sid'], w['start']))
     names = '\n'.join(f'- {s["sid"]}：{s["title"]}' for s in m.get('sources') or [])
-    atom_lines = '\n'.join(f'- [{a["id"]}]（{a["src"]}，{a["kind"]}）{a["text"]}' + (f'　条件：{a["cond"]}' if a['cond'] else '') for a in picked)
-    win_lines = '\n'.join(f'- [{w["sid"]} {_ts(w["start"])}–{_ts(w["end"])}] {w["text"]}' for w in wins) or '（没有找到特别相关的原文）'
+    atom_lines = '\n'.join(atom_line(a) for a in picked)
+    win_lines = '\n'.join(f'- [{win_label(w)}] {w["text"]}' for w in wins) or '（没有找到特别相关的原文）'
     system = (
-        f'{persona}\n\n---\n# 课程（编号对应）\n{names}\n\n'
+        f'{persona}\n\n---\n# 资料（编号对应）\n{names}\n\n'
         + (f'---\n# 课程蒸馏（整体体系）\n{distill}\n\n' if distill else '')
         + f'---\n# 观点库（{"全部" if picked is atoms else "和这个问题相关的部分"}，编号可作出处）\n{atom_lines}\n\n'
-        f'---\n# 和这个问题相关的课程原文（字幕片段）\n{win_lines}\n\n'
+        f'---\n# 和这个问题相关的原文（音视频的字幕片段、文字资料的段落）\n{win_lines}\n\n'
         '---\n# 这一次回答的要求\n' + CHAT_RULES
         + (f'\n\n---\n{extra}' if extra else '')
     )
@@ -383,12 +477,20 @@ def build_messages(m, history, question, extra=''):
     return messages, used
 
 
-def quote(mid, sid, t):
-    """出处那一秒前后的原话（界面上鼠标停在出处上时显示）。"""
+def quote(mid, sid, t, p=None):
+    """出处那一秒前后的原话（界面上鼠标停在出处上时显示）；文字资料（p 是第几段 / 页）是那一段和后面两段。"""
     m = get(mid)
     s = next((x for x in m.get('sources') or [] if x['sid'] == sid), None)
     if not s or not s.get('path'):
         return {'title': s['title'] if s else sid, 'text': '', 'path': ''}
+    if is_text(s['path']):
+        try:
+            tu = text_units(s['path'])
+        except Exception:  # noqa: BLE001
+            return {'title': s['title'], 'text': '', 'path': s['path'], 'text_source': True}
+        p = int(p or 1)
+        lines = [f'[第{u["n"]}{tu["unit"]}] {u["text"]}' for u in tu['units'] if p <= u['n'] < p + 3]
+        return {'title': s['title'], 'text': '\n'.join(lines), 'path': s['path'], 'text_source': True}
     d = docs.load(s['path']) or {}
     segs = d.get('segments') or []
     i = max((k for k, x in enumerate(segs) if float(x['start']) <= float(t) + 0.5), default=0)
@@ -503,8 +605,8 @@ def _fav_write(m, blocks):
         old = _read(path).rstrip()
     else:
         atoms = files_of(m['folder'])['atoms']
-        old = (f'---\n老师: {m["name"]}\n类型: 对话精选\ntags:\n  - 课程蒸馏\n---\n\n# {m["name"]}：对话精选\n\n'
-               f'> 在猛人学习「老师工作台」里和{m["name"]}的老师画像对话时，收藏的回答。出处 ［S02 19:54］ 对应 [[{atoms.stem if atoms else "01、观点库（逐节提取）"}]] 里的课程编号。'
+        old = (f'---\n老师: {m["name"]}\n类型: 对话精选\ntags:\n  - 灵修蒸馏\n---\n\n# {m["name"]}：对话精选\n\n'
+               f'> 在猛人灵修「老师工作台」里和{m["name"]}的老师画像对话时，收藏的回答。出处 ［S02 19:54］ 对应 [[{atoms.stem if atoms else "01、观点库（逐节提取）"}]] 里的资料编号（［S03 第12段］是文字资料的第几段）。'
                f'回答是 AI 按老师画像写的，不等于老师原话，也不是你的结论。')
     path.write_text(old + ''.join(blocks), encoding='utf-8')
     return path

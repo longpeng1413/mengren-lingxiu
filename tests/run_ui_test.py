@@ -26,9 +26,9 @@ def main():
     for d in (TD, UI, UI_AI, UI_LIB):
         shutil.rmtree(d, ignore_errors=True)
     RESULT.unlink(missing_ok=True)
-    (TD / 'appdata' / '猛人学习').mkdir(parents=True)
+    (TD / 'appdata' / '猛人灵修').mkdir(parents=True)
     (TD / 'local').mkdir()
-    (TD / 'appdata' / '猛人学习' / 'settings.json').write_text(
+    (TD / 'appdata' / '猛人灵修' / 'settings.json').write_text(
         json.dumps({'storage_dir': str(TD / 'store')}, ensure_ascii=False), encoding='utf-8')
     UI.mkdir(parents=True)
     UI_AI.mkdir(parents=True)
@@ -57,7 +57,7 @@ def main():
 
     env = dict(os.environ, APPDATA=str(TD / 'appdata'), LOCALAPPDATA=str(TD / 'local'), PYTHONIOENCODING='utf-8')
     if '--exe' in sys.argv:
-        cmd = [str(ROOT / 'dist-next' / '猛人学习' / '猛人学习.exe')]
+        cmd = [str(ROOT / 'dist-next' / '猛人灵修' / '猛人灵修.exe')]
     else:
         cmd = [sys.executable, str(ROOT / 'app' / 'main.py')]
     rc = subprocess.run(cmd + [f'--selftest={SCRIPT}', '--selftest-close', '--fake-ai'], env=env, timeout=400).returncode

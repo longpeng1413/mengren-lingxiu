@@ -1,16 +1,16 @@
-"""猛人学习命令行：给 Claude Code、Codex 等 AI Agent 调用，也可以自己在终端里用。
+"""猛人灵修命令行：给 Claude Code、Codex 等 AI Agent 调用，也可以自己在终端里用。
 
-    mengren list      [--course 课程] [--todo] [--since today] [--kind video|book]
-    mengren find      [关键词] [--course 课程] [--index 12] [--todo] [--since today]
-    mengren info      <文件路径或 video_id>
-    mengren process   <文件路径或 video_id …> | --course 课程 [--index 12] [--todo] [--since today]
+    lingxiu list      [--course 课程] [--todo] [--since today] [--kind video|book]
+    lingxiu find      [关键词] [--course 课程] [--index 12] [--todo] [--since today]
+    lingxiu info      <文件路径或 video_id>
+    lingxiu process   <文件路径或 video_id …> | --course 课程 [--index 12] [--todo] [--since today]
                       [--steps a,b] [--skip a,b] [--force] [--lang zh|en] [--provider doubao|openai|siliconflow] [--dry-run]
-    mengren run       <步骤> <文件路径或 video_id> [--force]
-    mengren steps
-    mengren tasks     [--limit 20]
-    mengren task      <task_id>
-    mengren resume    <task_id>
-    mengren cancel    <task_id>
+    lingxiu run       <步骤> <文件路径或 video_id> [--force]
+    lingxiu steps
+    lingxiu tasks     [--limit 20]
+    lingxiu task      <task_id>
+    lingxiu resume    <task_id>
+    lingxiu cancel    <task_id>
 
 所有命令加 --json 输出机器能读的结果（进度写在 stderr）。process 做的事等于在软件里点「一键整理」
 （生成字幕 → AI 校对 → 找关键帧 → 画面复核存疑句 → 翻译（只有英文）→ 课程重点 → 查漏 → 新术语），不剪藏。
@@ -29,6 +29,7 @@ if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_DATA = 0, 1, 2, 3
+APP_NAME = '猛人灵修'  # 和 core/config.py 的 APP_NAME 一样；这里要在加载 config 之前用，所以单独写
 
 
 def unc_of(path):
@@ -50,7 +51,7 @@ def use_real_appdata():
     packages = Path(os.environ.get('LOCALAPPDATA') or '') / 'Packages'
     if not appdata or appdata.startswith('\\\\') or not packages.is_dir():
         return None
-    d = Path(appdata) / '猛人学习'
+    d = Path(appdata) / APP_NAME
     probe = d / f'.转存探测-cli-{os.getpid()}'
     try:
         d.mkdir(parents=True, exist_ok=True)
@@ -58,7 +59,7 @@ def use_real_appdata():
     except OSError:
         return None
     try:
-        virtual = any((x / probe.name).exists() for x in packages.glob('*/LocalCache/Roaming/猛人学习'))
+        virtual = any((x / probe.name).exists() for x in packages.glob(f'*/LocalCache/Roaming/{APP_NAME}'))
     except OSError:
         virtual = False
     finally:
@@ -309,7 +310,7 @@ def parser():
     run_opts.add_argument('--doubao-account', help='这次用哪个豆包账号：auto（按顺序换）、账号的名字或第几个（1 是账号 1）；默认按软件设置')
     run_opts.add_argument('--model', choices=['cloud', 'local'], default='cloud', help='识别方式：cloud 云端（local 本地模型还没接入）')
 
-    p = argparse.ArgumentParser(prog='mengren', description='猛人学习命令行（给 AI Agent 调用）')
+    p = argparse.ArgumentParser(prog='lingxiu', description='猛人灵修命令行（给 AI Agent 调用）')
     sub = p.add_subparsers(dest='cmd', required=True)
     s = sub.add_parser('list', parents=[common, sel], help='列出媒体库里的视频和书')
     s.set_defaults(fn=cmd_list)

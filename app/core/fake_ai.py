@@ -45,31 +45,43 @@ def complete(settings, name, messages, json_mode=False):
     return '{}'
 
 
-def _distill_reply(system):
+# 文字资料（user 里是「[第N段] 原文」）的出处换成段落号
+_PARAS = {'00:02–00:05': '第2–3段', '00:10': '第4段', '00:04': '第2段', '00:06': '第3段', '00:08–00:12': '第5–6段', '00:01': '第1段',
+          '00:03': '第2段', '00:08 ': '第5段 '}
+
+
+def _distill_reply(system, user=''):
     if system == distill.EXTRACT_SYSTEM:
-        return json.dumps({'说明': '假 AI 提取的一节课。', '观点': [
-            {'内容': '风险要先算好（假 AI）。', '条件': '—', '出处': '00:02–00:05', '类型': '观点', '说得很满': False},
-            {'内容': '「截断亏损」。', '条件': '未讲明', '出处': '00:10', '类型': '方法', '说得很满': True}],
-            '自述': [{'内容': '我是假老师。', '出处': '00:01'}], '术语': [{'术语': '峰级', '意思': '假 AI 的解释', '出处': '00:03'}],
-            '实践': [{'内容': '先算风险', '依据': [1]}], '存疑': ['00:08 假 AI 标的存疑']}, ensure_ascii=False)
+        text = json.dumps({'说明': '假 AI 提取的一份资料。', '观点': [
+            {'内容': '先看见自己的情绪（假 AI）。', '条件': '—', '出处': '00:02–00:05', '类型': '观点', '说得很满': False},
+            {'内容': '「每天静坐十分钟」。', '条件': '未讲明', '出处': '00:10', '类型': '练习', '说得很满': True}],
+            '原话': [{'原话': '痛苦来了，先别跑。', '在讲什么': '面对情绪', '出处': '00:04'}],
+            '比喻和故事': [{'内容': '情绪像天上的云，来了又走。', '用来讲什么': '不认同情绪', '出处': '00:06'}],
+            '问答': [{'问': '我总是焦虑怎么办？', '答': '先停下来，感受呼吸。', '回应方式': '先接纳，再带着做练习', '出处': '00:08–00:12'}],
+            '自述': [{'内容': '我是假老师。', '出处': '00:01'}], '术语': [{'术语': '觉知', '意思': '假 AI 的解释', '出处': '00:03'}],
+            '实践': [{'内容': '每天静坐', '依据': [2]}], '存疑': ['00:08 假 AI 标的存疑']}, ensure_ascii=False)
+        if '[第1段]' in user:
+            for a, b in _PARAS.items():
+                text = text.replace(f'"{a}"', f'"{b}"').replace(a, b)
+        return text
     if system == distill.GROUP_SYSTEM:
-        return '### 这几节的主线\n\n- 假 AI 小结（S01-01）'
+        return '### 这几份资料的主线\n\n- 假 AI 小结（S01-01、S01-Y1）'
     if system == distill.MERGE_SYSTEM:
-        return '## 一、一句话\n\n假 AI 合并的课程蒸馏（S01-01、S01-02）。\n\n## 三、核心观点（合并后）\n\n1. **风险先算**（S01-01）'
+        return '## 一、一句话\n\n假 AI 合并的课程蒸馏（S01-01、S01-02）。\n\n## 三、核心观点（合并后）\n\n1. **先看见情绪**（S01-01、S01-W1）'
     if system == distill.PERSONA_SYSTEM:
-        return '## 二、他是谁\n\n- 假老师［S01-A1］\n\n## 八、他没讲、或明确不碰的\n\n- 止盈（未讲明）'
+        return '## 二、他是谁\n\n- 假老师［S01-A1］\n\n## 四、他怎么回应一个人的困惑（模仿这个顺序和分寸）\n\n- 先接纳，再带着做练习［S01-W1］\n\n## 十、他没讲、或明确不碰的\n\n- 前世今生（未讲明）'
     from . import roundtable
     if system == roundtable.ROUND_SUMMARY_SYSTEM:
-        return '### 共识\n\n- 都说风险要先算（假 AI 总结）\n\n### 分歧和原因\n\n- 没有'
+        return '### 共识\n\n- 都说先看见情绪（假 AI 总结）\n\n### 分歧和原因\n\n- 没有'
     if system == roundtable.TOPIC_TEACHER_SYSTEM:
-        return '### 他的主要观点\n\n- 风险先算（假 AI）'
+        return '### 他的主要观点\n\n- 先看见情绪（假 AI）'
     if system == roundtable.TOPIC_MERGE_SYSTEM:
-        return '## 一、一句话\n\n假 AI 写的主题蒸馏。\n\n## 三、共识\n\n- 风险先算'
+        return '## 一、一句话\n\n假 AI 写的主题蒸馏。\n\n## 三、共识\n\n- 先看见情绪'
     return None
 
 
 def stream(settings, name, messages, cancel=None, json_mode=False):
-    reply = _distill_reply(str(messages[0].get('content')) if messages else '')
+    reply = _distill_reply(str(messages[0].get('content')) if messages else '', str(messages[-1].get('content')) if messages else '')
     if reply is not None:
         time.sleep(0.2)
         yield reply

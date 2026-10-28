@@ -1,5 +1,6 @@
 """字幕文件：保存在视频旁边（「视频名.猛人学习.json」），写不进去时放到 %APPDATA%\\猛人学习\\library。
-1.6 以前叫「视频名.猛人字幕.json」：照样能读，下次保存时改成新名字。
+猛人灵修和猛人学习共用这些文件（文件名、备用位置、写锁都一样，config.SHARED_DIR），所以名字不改。
+猛人学习 1.6 以前叫「视频名.猛人字幕.json」：照样能读，下次保存时改成新名字。
 另外负责导出 TXT / SRT，以及剪藏到 Obsidian。"""
 import hashlib
 import json
@@ -10,10 +11,10 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from .config import DATA_DIR
+from .config import APP_NAME, DATA_DIR, SHARED_DIR
 from .llm import fmt
 
-SUFFIX = '.猛人学习.json'
+SUFFIX = '.猛人学习.json'  # 和猛人学习共用，不能改
 OLD_SUFFIX = '.猛人字幕.json'
 VERSION = 1
 
@@ -42,13 +43,14 @@ def media_key(media_path: str) -> str:
 
 
 def fallback(media_path: str) -> Path:
-    return DATA_DIR / 'library' / f'{media_key(media_path)}.json'
+    return SHARED_DIR / 'library' / f'{media_key(media_path)}.json'  # 和猛人学习共用
 
 
 @contextmanager
 def write_lock(media_path: str):
-    """同一节课的字幕文件同时只让一个程序写：界面和命令行（Agent）可能同时在改同一节课。"""
-    d = DATA_DIR / 'locks'
+    """同一节课的字幕文件同时只让一个程序写：界面和命令行（Agent）、猛人灵修和猛人学习可能同时在改同一节课，
+    所以锁文件放在两个软件共用的 %APPDATA%\\猛人学习\\locks。"""
+    d = SHARED_DIR / 'locks'
     d.mkdir(parents=True, exist_ok=True)
     f = open(d / f'{media_key(media_path)}.lock', 'a+b')
     locked = False
@@ -317,7 +319,7 @@ def to_markdown(doc, teacher=None, series='', boundary=''):
         f'人工校对: {"true" if doc.get("reviewed") else "false"}',
         f'剪藏时间: {time.strftime("%Y-%m-%d %H:%M")}',
         'tags:',
-        '  - 猛人学习',
+        f'  - {APP_NAME}',
     ]
     if tag:
         lines.append(f'  - {safe_name(tag).replace(" ", "_")}')
@@ -336,6 +338,11 @@ def to_markdown(doc, teacher=None, series='', boundary=''):
         if s.get('tr'):
             lines.append(f'　　{s["tr"]}')
     return '\n'.join(lines).rstrip() + '\n'
+
+
+def _inside(path, folder):
+    norm = lambda p: os.path.normcase(os.path.abspath(str(p)))  # noqa: E731
+    return norm(path).startswith(norm(folder).rstrip('\\/') + os.sep)
 
 
 def _same_media(a, b):
@@ -359,7 +366,7 @@ def find_note(vault: Path, media: str, prefer: Path = None, also=()):
                     head = f.read(1500)
             except OSError:
                 continue
-            if not head.startswith('---') or ('猛人学习' not in head and '猛人字幕' not in head):
+            if not head.startswith('---') or not any(w in head for w in ('猛人灵修', '猛人学习', '猛人字幕')):
                 continue
             m = re.search(r'(?m)^(?:视频文件|source):\s*"?(.*?)"?\s*$', head)  # 1.7.4 以前的笔记属性是英文
             if m and any(_same_media(m.group(1), x) for x in medias):
@@ -713,8 +720,8 @@ def clip(doc, vault: str, folder: str, teacher=None, series='', teacher_subfolde
         target_dir = target_dir / safe_name(teacher.get('folder') or teacher.get('display') or teacher.get('name') or '')
     previous = (doc.get('clip') or {}).get('path')
     path = None
-    if previous and Path(previous).is_file():
-        path = Path(previous)  # 同一个视频再次剪藏时更新原来的笔记
+    if previous and Path(previous).is_file() and _inside(previous, vault):
+        path = Path(previous)  # 同一个视频再次剪藏时更新原来的笔记（字幕文件和猛人学习共用：那边剪藏到别的库的，不去改那边的笔记）
     elif doc.get('media'):
         path = find_note(Path(vault), doc['media'], prefer=target_dir if target_dir.is_dir() else Path(vault) / (folder or ''),
                          also=doc.get('media_history') or ())

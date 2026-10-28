@@ -4,31 +4,55 @@
 
 用户是这个软件唯一的使用者兼所有者，不是程序员：和他沟通用中文、讲结果和影响，不讲术语；动手前说清楚要改什么，改完说清楚测了什么。
 
+## 先读：猛人灵修是什么、和猛人学习的关系（2026-10-28）
+
+猛人灵修是 2026-10-28 从猛人学习（`D:\mengren-learning`，交易课程字幕整理 + 老师蒸馏，1.8.10）复制改造的，给灵修 / 心灵成长 / 灵性投资老师做蒸馏和数字分身。用户以前想做服务器版「喜悦之道软件」（`D:\喜悦之道软件开发`），周期太长，先做这个本机版。**那个独立项目别动。**
+
+- 项目在 `D:\mengren-lingxiu`，GitHub `longpeng1413/mengren-lingxiu`（公开）。git 远程 `origin` 是 GitHub，`mengren-learning` 指向本机 `D:\mengren-learning`：猛人学习修了 bug，可以 `git fetch mengren-learning` 再挑着合并（`git cherry-pick` 或合并后解决冲突），注意下面这些「灵修版不一样的地方」不要被覆盖回去。
+- 下面原来猛人学习的约定**大部分仍然适用**（关闭流程、file:// 加载、转存、数据文件读不出不能当空、术语表语法、豆包模型、播放规则……）。凡是写「猛人学习」的地方，在这个项目里指猛人灵修自己，除非明确说的是共用的东西。
+
+### 灵修版不一样的地方（改代码时别弄回去）
+
+- **名字和数据分开**：`config.APP_NAME = '猛人灵修'`，数据在 `%APPDATA%\猛人灵修`。**绝不从猛人字幕、猛人学习搬数据**（猛人学习的 `_migrate_data_dir` 已删掉）。防重复打开的互斥锁、`--quit` 退出事件名前缀 `MengrenLingxiu`（按数据目录哈希）。exe 是 `猛人灵修.exe`，托盘、窗口标题、导出设置文件名（`猛人灵修设置.json`）、关于页链接都改了。版本号从 1.0.0 起。
+- **第一次打开从猛人学习带设置**（`config.import_from_sibling`，`main.py` 启动时调用，`--selftest` 不调用）：`%APPDATA%\猛人灵修\settings.json` 不存在时，从 `%APPDATA%\猛人学习\settings.json` 只复制 `SIBLING_KEYS`（`providers` 含 ChatGPT 登录和豆包账号、`proxy`、`asr_en / asr_zh / translate / correct / chat / vision`），**不带**媒体库、老师、术语表、Obsidian、播放进度。读不到就跳过。界面第一次打开会提示带过来了。
+- **和猛人学习共用的东西**（`config.SHARED_DIR = %APPDATA%\猛人学习`）：
+  - 字幕文件 `视频名.mp4.猛人学习.json`（`doc.SUFFIX` **不能改**：用户在猛人学习里识别了几百节灵修课，要直接拿来蒸馏），写不进视频旁边时的备用位置 `SHARED_DIR\library\`；
+  - 字幕写锁 `doc.write_lock` 和「正在整理」标记 `tasks.BUSY_DIR` 都在 `SHARED_DIR\locks`，两个软件不会同时写同一份字幕。标记里写 `app`（哪个软件写的）；`cache.clean_marks` 只清 `app == 猛人灵修` 且进程不在了的标记，猛人学习的（包括没写 `app` 的旧标记）留给它自己清；0 字节的 `.lock` 一天没用就删（正被占着的删不掉，删掉的下次保存重建，谁删都一样）。
+  - 剪藏记录 `clip` 也在共用的字幕文件里：`doc.clip` 只在上次的笔记**在当前 Obsidian 库里**时才更新它（`_inside`），否则在当前库另建，免得猛人灵修改到猛人学习库里的笔记。反过来（同一节课在猛人灵修剪藏后，又在猛人学习里剪藏）猛人学习会更新猛人灵修库里的那篇——这是已知限制，两边都剪藏同一节课时要留意。
+- **默认值**：
+  - 媒体库最上层默认**不写课程重点**（`library.SUMMARY_DEFAULT = 'off'`；文件夹菜单「这里的课不写课程重点」默认打 ✓，取消勾选记成 `'on'`，文件夹旁标「写重点」）。
+  - **不找关键帧**：设置 `auto_frames`（默认 False）。`workflow.why_skip('frames')` 在没开 `auto_frames`、不是重做、也没在 `opts['asked']`（调用方明确给的 steps）里时返回 `NO_FRAMES`，不算没做完；一键整理勾上 / 文件夹规则勾上 / `--steps frames` 照样找。
+  - 主题色青绿 `#3cc8c0`；图标是 `design/recolor_full.py` 的 full-7「青碧」（和紫晶的猛人学习、金色的截图教鞭、红宝石色的快传区分开），设计稿在 `D:\mengren-learning\design\icons\full-7-1024.png`。
+- **媒体库列 txt / md**（`book.LIB_EXT = DOC_EXT`，含 `TEXT_EXT`）：文章、对话记录要能选作蒸馏来源。和音视频同名的 txt / md（导出的文字稿，`课.txt` 或 `课.mp4.txt`）不列；里面有 `.obsidian` 的文件夹（Obsidian 库）不列。没当书整理过的 txt / md 不算「未整理完」（`workflow.plain_text`，用在 `pending_in_scan / pending_now / todo_for`）。
+- **灵修版蒸馏**（`core/distill.py`，`PROMPT_VER = 2`）：见下面「老师蒸馏」一节里标「灵修版」的部分。
+- **Obsidian 位置**（用户 2026-10-28 定：灵修老师用另一个 Obsidian 库）：蒸馏结果 `灵修老师/老师名/`（`distill.MENTOR_ROOT`，`mentor.MENTOR_ROOT` 要一样）；圆桌讨论、主题蒸馏 `灵修主题/主题文件夹/`（`roundtable.TOPIC_ROOT`、`TOPIC_FOLDERS` 六个灵修主题）；新老师术语表 `灵修术语表/老师名术语表.md`（`glossary.KB_DIR`，逐课补充一节叫「逐课补充（猛人灵修）」，关联的是猛人学习建的术语表时接着写它的「逐课补充（猛人学习）」，`SECTION_NAMES`）；剪藏默认文件夹 `灵修课程`。提示词不再写进知识库文件（`prompts_markdown` 只在需要时生成）。
+- 命令行入口 `lingxiu.cmd`（原 `mengren.cmd`），`cli.APP_NAME` 要和 `config.APP_NAME` 一样（`use_real_appdata` 在加载 config 之前跑）。
+
 ## 绝对不要做的事
 
-- **不要强行结束用户正在运行的「猛人学习.exe」**（不要一上来就 taskkill / Stop-Process）。他可能正在看课、改字幕，强关会丢未保存的修改。用户已允许升级时关闭它，但要**正常退出**（程序会先保存），见下面「打包和更新」。
-- **点右上角 × 默认不退出，收到右下角托盘**（1.7.13，用户要求；设置「关于与数据 → 点右上角 × 时」可以改成直接退出，`close_to_tray`）。托盘在 `app/tray.py`（pystray，打包要 `--hidden-import pystray._win32`）：单击打开，右键「打开猛人学习」「退出」。所以 `CloseMainWindow()` 只会把窗口收起来；要让它保存后退出，运行 `猛人学习.exe --quit`（命名事件通知正在运行的那个走 `on_closing(force=True)`）。再次双击时 `bring_front` 把收起的窗口显示出来。
+- **不要强行结束用户正在运行的「猛人灵修.exe」，更不要动「猛人学习.exe」**（不要一上来就 taskkill / Stop-Process）。他可能正在看课、改字幕，强关会丢未保存的修改。用户已允许升级时关闭它，但要**正常退出**（程序会先保存），见下面「打包和更新」。
+- **点右上角 × 默认不退出，收到右下角托盘**（1.7.13，用户要求；设置「关于与数据 → 点右上角 × 时」可以改成直接退出，`close_to_tray`）。托盘在 `app/tray.py`（pystray，打包要 `--hidden-import pystray._win32`）：单击打开，右键「打开猛人灵修」「退出」。所以 `CloseMainWindow()` 只会把窗口收起来；要让它保存后退出，运行 `猛人灵修.exe --quit`（命名事件通知正在运行的那个走 `on_closing(force=True)`）。再次双击时 `bring_front` 把收起的窗口显示出来。
 - **不要改回本机 HTTP 服务器**。界面必须用 `index.as_uri()`（`file://`）加载，通过 pywebview 的 `js_api` 和后台通信。用户电脑上的 360 主动防御和 Clash Verge 会干扰 127.0.0.1 回环连接（传输卡在约 64KB 或被重置），以前因此出过「图标只显示一半」「界面卡住」。注意：给 `create_window` 传普通路径时 pywebview 会**悄悄**起一个本地服务器，所以一定要传 `file://` URI。
 - **不要在关闭事件里同步调用 `window.evaluate_js`**。`closing` 事件在界面线程里执行，同步等界面会死锁（以前出过「猛人字幕.exe 未响应」，软件那时还叫猛人字幕）。现在的做法见 `app/main.py` 的 `on_closing`：先返回 False 取消关闭 → 后台线程通知界面 `window.prepareClose()` 保存 → 等 `api._quit`（最多 4 秒）→ `window.destroy()` → `os._exit` 兜底。
 - **改设置只用 `config.update(部分设置)`；`config.save()` 是保存整份设置**。2026-10-11 曾用 `config.save({'book_rules_file': …})` 把用户的密钥、ChatGPT 登录、Obsidian 位置全部冲掉。现在 `save()` 会从现有文件补回没传的项，但仍应该用 `update()`。
-- **读不出数据文件时不能当成空的**（1.7.10）：`config._read_json` 读失败会重试、再用 `.bak`，都不行就抛 `DataError`，界面显示原因；只有文件本来不存在才用默认值。每次写之前留 `.bak`，每天第一次写留快照到 `%APPDATA%\猛人学习\backups\数据`（保留 30 天）。
+- **读不出数据文件时不能当成空的**（1.7.10）：`config._read_json` 读失败会重试、再用 `.bak`，都不行就抛 `DataError`，界面显示原因；只有文件本来不存在才用默认值。每次写之前留 `.bak`，每天第一次写留快照到 `%APPDATA%\猛人灵修\backups\数据`（保留 30 天）。
 - **同一份数据只开一个窗口**（`main.single_instance`，按数据目录建互斥锁；`--selftest` 不受限）。再双击会切到已开的窗口。
-- **不要把 API 密钥写进日志、报错信息或仓库**。密钥字段见 `config.SECRETS`，发给界面前用 `config.public()` 打码。用户的设置在 `%APPDATA%\猛人学习\`，不在项目里。
+- **不要把 API 密钥写进日志、报错信息或仓库**。密钥字段见 `config.SECRETS`，发给界面前用 `config.public()` 打码。用户的设置在 `%APPDATA%\猛人灵修\`，不在项目里。
 - **从 Claude 桌面版里启动的程序（包括你跑的脚本），写 `%APPDATA%` 会被 Windows 转存**到 `%LOCALAPPDATA%\Packages\Claude_…\LocalCache\Roaming\`，而且只有 Claude 启动的程序看得到。2026-10 因此出过「从桌面打开媒体库空白、设置像没了」：用户好几天都在用我启动的那个窗口，数据全写进了转存文件夹。现在 `app/core/appdata.py` 防住了：被转存时软件通过资源管理器重新打开自己；正常启动时把转存的数据先备份再搬回来。所以：
-  - 给用户打开软件用 `explorer.exe "…\猛人学习.exe"`（或桌面快捷方式），不要直接启动 exe；
-  - 用脚本读写用户的真实设置时，你看到 / 写进的可能是转存的那份。要看真正的文件用 `\\localhost\C$\Users\…\AppData\Roaming\猛人学习`；改设置尽量让用户在软件里改。
+  - 给用户打开软件用 `explorer.exe "…\猛人灵修.exe"`（或桌面快捷方式），不要直接启动 exe；
+  - 用脚本读写用户的真实设置时，你看到 / 写进的可能是转存的那份。要看真正的文件用 `\\localhost\C$\Users\…\AppData\Roaming\猛人灵修`；改设置尽量让用户在软件里改。
   - 启动日志里有一行「数据文件夹：…｜settings.json 多大…｜媒体库几个文件夹」，再有「数据不见了」先看这一行。
 
-### 改名（1.6）
+### 改名（猛人学习 1.6 的历史）
 
-软件原名「猛人字幕」，1.6 起叫「猛人学习」。兼容要一直保留：`config._migrate_data_dir()` 把 `%APPDATA%\猛人字幕` 搬到 `%APPDATA%\猛人学习`；`doc.load` 还认旧的 `.猛人字幕.json`，保存时改成 `.猛人学习.json`；设置导入认两个名字；`find_note` 认两个标签。项目文件夹 2026-10-12 从 `E:\Claude-猛人字幕` 搬到 `D:\mengren-learning`（和 GitHub 仓库同名，用户要求软件开发文件都放 D 盘）。
+猛人学习原名「猛人字幕」。猛人灵修**不**搬 `%APPDATA%\猛人字幕` 的数据（已删掉 `_migrate_data_dir`），但 `doc.load` 还认旧的 `.猛人字幕.json`（保存时改成共用的 `.猛人学习.json`）；设置导入认猛人灵修、猛人学习、猛人字幕三个名字；`find_note` 认三个标签。
 - **不要动 `D:\Claude-乔木剪藏`**（以前在 `E:\Claude-乔木剪藏`），那是另一个项目。
 
 ## 必须保持的行为
 
 ### 字幕文件兼容
 
-字幕存在视频旁边的 `视频名.mp4.猛人学习.json`（写不进去时放 `%APPDATA%\猛人学习\library\`），见 `app/core/doc.py`。用户已经有大量做好的字幕：
+字幕存在视频旁边的 `视频名.mp4.猛人学习.json`（和猛人学习共用；写不进去时放共用的 `%APPDATA%\猛人学习\library\`），见 `app/core/doc.py`。用户已经有大量做好的字幕：
 
 - 新增字段可以，但读取时要给旧文件缺的字段兜底；
 - 不要改名或删除已有字段（`segments`、`summary`、`chat`、`versions`、`teacher`、`reviewed`、`corrected`、`clip`、`pending_task`、`doubts` 等）；（`pending_task` 是以前豆包闲时版留下的「还在处理」记录，闲时版 2026-10-14 去掉了，重新识别时删掉它）
@@ -91,7 +115,7 @@
 
 ## 媒体库（2026-10-14 改成树形，用户定的规则）
 
-`app/core/library.py`，数据在 `%APPDATA%\猛人学习\library.json`：`folders`（最上层文件夹）、`files`（单个文件）、`order`（最上层顺序）、`dirs`（下层文件夹的老师和收起状态，键是小写路径）、`orders`（用户拖出来的顺序）。旧格式读的时候自动补齐。
+`app/core/library.py`，数据在 `%APPDATA%\猛人灵修\library.json`：`folders`（最上层文件夹）、`files`（单个文件）、`order`（最上层顺序）、`dirs`（下层文件夹的老师和收起状态，键是小写路径）、`orders`（用户拖出来的顺序）。旧格式读的时候自动补齐。
 
 - **按实际层级显示**；`_` 或 `.` 开头的文件夹、没有可列文件的空文件夹不显示。
 - **排列**：最上层按加入先后（`order`）；文件夹里同一层，带序号的（`number_key`：1、 01. 1.2 第3讲 三、）按序号在前，没序号的按创建（下载）时间在后。没序号的可以拖到任意位置（`orders`），带序号的之间永远按序号（`arrange` 把序号的位置重新填好）；界面上拖乱了序号会提示改名，不改名就不动。
@@ -140,19 +164,24 @@
   - 写进 Obsidian（`write_files`）前整份备份到 `backups\蒸馏\老师名-时间\`（每位老师 20 份）；`written` 记写出去的指纹，上次写完之后用户在 Obsidian 里改过（或不是软件写的，比如手工做的人间落叶）时，`start` 先返回 `conflict`，界面确认后 `force`。
   - 在 `jobs` 里跑（同一位老师同时只跑一个，`_running`），临时出错按 workflow 的 `RETRIES` / `RETRY_WAIT` 重试，额度用完直接停；界面在对话区上方 `#mentorDistill` 和左栏标签显示进度，可以照常切课。job 只在内存里，软件退出就停，下次「继续蒸馏」从没做完的接着做。正在蒸馏的老师不能移除。
   - 用设置里「对话」的 AI（和课程重点同一个）。界面自测的假 AI 在 `fake_ai._distill_reply`（按系统提示词认是哪一步）。
+- **灵修版蒸馏**（2026-10-28，`distill.PROMPT_VER = 2`）：用户要求按灵修老师重做，原因是交易版「观点 + 条件 + 类型」会丢掉灵修老师最重要的原话、比喻、故事和回应方式。
+  - `EXTRACT_SYSTEM` 多了「原话」（照录，编号 `S03-Y1`）、「比喻和故事」（内容 + 用来讲什么，`S03-B1`）、「问答」（学员问什么 + 老师怎么回应，尽量原话、保留步骤，+ 回应方式，`S03-W1`）；类型改成 观点 / 修法 / 定义（AI 写「方法、练习」时 `KIND_ALIAS` 归到修法）；对话记录类资料要认出问答。自述 `A`、术语、实践、存疑照旧。`lesson_md` 写表格，`mentor.parse_atoms` 按编号字母认是哪张表（`KIND_OF`），`mentor.atom_line` 是交给 AI 的一行；`distill._ids_in / _norm_id` 认 `A / Y / B / W`；界面 `citeHTML` 认 `S02-Y3` 这类编号。
+  - `MERGE_SYSTEM` 九个小标题（一句话 / 核心教导体系 / 核心观点 / 修法 / 反复强调的 / 常用比喻和故事 / 前后不一致 / 没讲到的 / 可以实践的）；`PERSONA_SYSTEM` 写第二～十一节，重点是「他怎么回应一个人的困惑」「语录」「比喻和故事」「说话风格」，回答示范里有一个情绪很痛苦的提问；写画像时附上全部问答、原话、比喻和故事、自述（每类最多 `PERSONA_LIST` 字）。
+  - `persona_rules`（程序固定写的第一节）：身份是灵修 / 心灵成长老师，**没有「不给买卖建议」**（用户要求：灵性投资老师不限制）；被问到时照实说是 AI 模拟、不是本人，不替老师承诺；对方流露严重痛苦或自伤念头时先关心、建议找身边的人和专业心理援助（热线、医院心理科、急救），不只用灵性道理带过、不说「业力」这类让人自责的话；像老师那样说话，不用 AI 腔。`mentor.CHAT_RULES` 同样这几条。**改这些安全相关的规则前先问用户。**
+  - **文字资料**（文章、对话记录、书：`book.DOC_EXT`）也能选作来源：`mentor.is_text / text_units` 用 `book.read` 读，每个非空行算一段（对话记录一般一句一行），PDF 按页（PDF 的换行不是分段）；按文件修改时间缓存 30 份。提取时交「[第N段] 原文」，出处写「S03 第12段」（PDF「第5页」），超出段数标「位置待核对」（`_fix_src(…, unit, size)`）；`distill.json` 的课记 `unit`、`size`；指纹按段落文字算，文章改了标「改过」重新提取；文字资料算人工校对过。对话时 `mentor._windows` 把文字资料按约 400 字（`WINDOW_CHARS`）切片，出处用 `win_label`；`quote(…, p)` 返回那一段和后面两段。界面点文字资料的出处显示那段原文，可以「打开这份资料」（不跳到具体段落）。
 - **圆桌讨论、主题蒸馏**（2026-10-24，`core/roundtable.py`，`bridge.do_round_* / do_topic_* / do_prompts`，界面 `web/round.js`，规则是知识库蒸馏规范 V2.0 第六节）：
   - 圆桌：选两位以上蒸馏好的老师提问 → 每位老师用 `mentor.build_messages(…, extra=ROUND_ANSWER)` 各自回答（只带他自己的画像、资料和他自己以前的回答）→ `ROUND_SUMMARY_SYSTEM` 总结；「互相回应」用 `ROUND_REPLY` 把别的老师第一轮的回答给他。一位一次 AI，顺序做，job 条目是 `{kind: start|text|reset|done, who: 老师id|summary}`，界面 `followRound` 边写边显示。记录在 `%APPDATA%\猛人学习\roundtables\`；「收藏到 Obsidian」整场写 `04/02、主题蒸馏资料/主题/日期、问题、多位老师讨论.md`（`round_md`，再收藏更新同一个文件，覆盖前备份到 `backups\圆桌讨论`）。
   - 主题蒸馏：每位老师用 `mentor.rank` 从观点库挑 80 条、原文挑 8 段（本机打分）→ `TOPIC_TEACHER_SYSTEM` 整理一次（一条都没挑到就不调 AI，写「资料里没有讲到」）→ `TOPIC_MERGE_SYSTEM` 合并 → 写 `日期、主题、跨来源蒸馏.md`；`bad_refs` 查 ［老师名 S02-21］ 对不上的在文末列出。记录在 `topics\`。
   - 出处：老师自己的回答还是 ［S02 19:54］，界面按这段是哪位老师说的（`answerHTML(text, {mid})`）认；总结和主题蒸馏里是 ［老师名 S02-21］（`{names}`）。`M.ov` 缓存每位老师的来源和观点编号；`mentorJump(mid, sid, t)`。
   - 和 mentor.js 共用对话区：`R.mode`（'round' | 'topic'）不为空时，`renderMentorHead / renderMentorMsgs / mentorAsk` 交给 round.js。**界面自测脚本里有自己的 `R`（结果列表），要用 `(0, eval)('R')` 取软件的**（和以前 `const M` 挡住一样）。
-  - **提示词只有一份：代码里的常量**。`roundtable.prompt_list()` 列出全部 11 种（界面「提示词」按钮显示），`prompts_markdown()` 生成知识库《02、规则体系/01、通用规则/08、AI蒸馏提示词》。**改了任何蒸馏 / 对话提示词，要重新生成那份文件**（软件不读它；用户要能在知识库里看到原文）。
+  - **提示词只有一份：代码里的常量**。`roundtable.prompt_list()` 列出全部 11 种（界面「提示词」按钮显示），`prompts_markdown()` 能生成一份 Markdown（猛人灵修目前不往知识库写；用户要的话再生成）。
 - **保存冲突**：字幕文件新增 `rev`（每次保存加 1）。`doc.save(path, doc, base_rev)` 发现磁盘上的 rev 和调用方读到的不一样就不写、返回 `conflict`；界面（`save()` / `onSaveConflict()`）问用户「重新打开看自动整理的结果」还是「保留我的覆盖」。写文件用 `doc.write_lock`（`%APPDATA%\猛人学习\locks\`）防止两个进程同时写。
 - Agent 正在整理的课有 `locks\<key>.busy` 标记（记着进程号，进程不在了就失效），界面打开时提示。
 - AI 校对前存一份「AI 校对前」历史版本（最多 5 份，和重新识别共用），不满意可以在「历史版本」里恢复。
 - 界面自测用假的识别和 AI：`app/core/fake_ai.py`，只在 `main.py --selftest=… --fake-ai` 时装上（`run_ui_test.py` 会传），用 `test-media/ui-ai/` 里的视频和书测每个整理按钮和一键整理。
 - 只处理媒体库里的文件（`workflow.allowed`），其他路径返回 `not_in_library`。
 - 命令行从 Claude 桌面版启动时可能被转存（见上面「转存」）：`cli.use_real_appdata()` 检测到就改用 `\\localhost\C$\…` 读写真实数据。日志写 `agent.log`（不和界面的 `app.log` 抢着轮换）。
-- 入口：`mengren.cmd`（项目根目录，用 `.venv` 的 Python 跑 `app/cli.py`）。打包版还没有控制台版 exe（窗口程序打不出命令行输出），需要时再加。
+- 入口：`lingxiu.cmd`（项目根目录，用 `.venv` 的 Python 跑 `app/cli.py`）。打包版还没有控制台版 exe（窗口程序打不出命令行输出），需要时再加。
 - **临时出错自动重试**（2026-10-15，批量整理「峰级分析」时 ChatGPT 多次「Our servers are currently overloaded」、豆包流式识别发到 92% 时 55000000 导致整节课失败）：
   - `tasks._RULES` 的 `overloaded`（可重试）认「overloaded / try again later / temporarily unavailable / HTTP 502 503 504 529 / 豆包 55 开头的错误码 / remote or network error」。**额度规则排在它前面**：ChatGPT 5 小时用量限额（usage limit、`usage_limit_reached`）、豆包 `QuotaError` 仍是 `quota`，马上停、不重试——就算说明里也写了「try again later」。
   - ChatGPT 的「太忙」是在 HTTP 200 之后的数据流里报的（`response.failed` / `error` 事件），`llm._post_stream` 对 429 / 5xx 的重试管不到，由 `llm._codex_error` 转成错误、`workflow._run_stage` 重做这一步。`_codex_error` 也认额度（`llm.QUOTA_RE`）。429 说的是额度用完时 `_post_stream` 不再白重试。
@@ -228,27 +257,27 @@ python -m venv .venv
 
 ## 打包和更新用户本机的程序
 
-用户从桌面快捷方式打开 `dist\猛人学习\猛人学习.exe`。
+用户从桌面快捷方式「猛人灵修」打开 `D:\mengren-lingxiu\dist\猛人灵修\猛人灵修.exe`。
 
 1. `.venv\Scripts\python build.py` → 输出到 `dist-next\`（不碰正在用的 `dist\`）。
 2. `.venv\Scripts\python tests\run_ui_test.py --exe` 测打包版。
-3. 换进 `dist`：用户已允许升级时关闭正在运行的程序。先正常退出（运行 `& "D:\mengren-learning\dist\猛人学习\猛人学习.exe" --quit`，等它自己保存退出，最多等 15 秒左右，还不退出才 `Stop-Process`；1.7.12 及以前的版本没有 --quit，用 `CloseMainWindow()`），然后执行「更新到新版.bat」里同样的步骤（把 `dist\猛人学习` 里的「缓存（可随时删除）」「日志（可随时删除）」移进 `dist-next\猛人学习`，删掉 `dist`，把 `dist-next` 改名为 `dist`）。如果用户在另一个对话里正用命令行整理课程，不影响换新版（命令行用的是源码，不是 `dist`），最后用 `explorer.exe "D:\mengren-learning\dist\猛人学习\猛人学习.exe"` 启动（不要直接启动，见上面「转存」）并告诉用户。用户也可以自己双击「更新到新版.bat」。
+3. 换进 `dist`：用户已允许升级时关闭正在运行的程序。先正常退出（运行 `& "D:\mengren-lingxiu\dist\猛人灵修\猛人灵修.exe" --quit`，等它自己保存退出，最多等 15 秒左右，还不退出才 `Stop-Process`；1.7.12 及以前的版本没有 --quit，用 `CloseMainWindow()`），然后执行「更新到新版.bat」里同样的步骤（把 `dist\猛人灵修` 里的「缓存（可随时删除）」「日志（可随时删除）」移进 `dist-next\猛人灵修`，删掉 `dist`，把 `dist-next` 改名为 `dist`）。如果用户在另一个对话里正用命令行整理课程，不影响换新版（命令行用的是源码，不是 `dist`），最后用 `explorer.exe "D:\mengren-lingxiu\dist\猛人灵修\猛人灵修.exe"` 启动（不要直接启动，见上面「转存」）并告诉用户。用户也可以自己双击「更新到新版.bat」。
 
 ## 发新版本
 
 1. 改 `app/main.py` 里的 `VERSION`。
 2. 测试、打包（见上）。
-3. 提交并推送到 `main`（仓库：https://github.com/longpeng1413/mengren-learning）。
-4. 打包发布用 `release.py`（见下面「发布压缩包」），用 `gh release create v版本号` 发布。**附件文件名必须是英文**，例如 `mengren-learning-1.7.13-windows-with-ffmpeg.zip`，否则 GitHub 会把中文吞掉。中文名写在附件的 label 里。发布说明里提醒：程序没有数字签名，可能会被安全软件提示。
+3. 提交并推送到 `main`（仓库：https://github.com/longpeng1413/mengren-lingxiu）。
+4. 打包发布用 `release.py`（见下面「发布压缩包」），用 `gh release create v版本号` 发布。**附件文件名必须是英文**，例如 `mengren-lingxiu-1.0.0-windows-with-ffmpeg.zip`，否则 GitHub 会把中文吞掉。中文名写在附件的 label 里。发布说明里提醒：程序没有数字签名，可能会被安全软件提示。
 5. README 的功能说明有变化时一起更新。
 
 推送、发布这类对外操作，先问用户。
 
 ### 发布压缩包
 
-`.venv\Scripts\python release.py --src dist-next` 在 `release\` 里打 `mengren-learning-版本-windows-with-ffmpeg.zip`（附带本机 winget 装的 ffmpeg.exe、ffprobe.exe 和它的 LICENSE / README，GPL 要求一起分发；软件会先找自己文件夹里 `ffmpeg\` 下的 ffmpeg）。**用户 2026-10 要求：GitHub Release 一律只发这个附带 ffmpeg 的包**，别人下载解压就能用；不再发不带 ffmpeg 的包，也不用往桌面放压缩包。打包时不要带软件文件夹里的缓存和日志（会有好几 GB），也**不要带任何个人设置**：用户会直接把包发给朋友。
+`.venv\Scripts\python release.py --src dist-next` 在 `release\` 里打 `mengren-lingxiu-版本-windows-with-ffmpeg.zip`（附带本机 winget 装的 ffmpeg.exe、ffprobe.exe 和它的 LICENSE / README，GPL 要求一起分发；软件会先找自己文件夹里 `ffmpeg\` 下的 ffmpeg）。**用户 2026-10 要求：GitHub Release 一律只发这个附带 ffmpeg 的包**，别人下载解压就能用；不再发不带 ffmpeg 的包，也不用往桌面放压缩包。打包时不要带软件文件夹里的缓存和日志（会有好几 GB），也**不要带任何个人设置**：用户会直接把包发给朋友。
 
-`app/core/portable.py`：软件文件夹里有 `猛人学习设置.json`、而这台电脑还没有设置时，第一次启动自动导入，导入后改名「…（已导入，可删除）」。
+`app/core/portable.py`：软件文件夹里有 `猛人灵修设置.json`、而这台电脑还没有设置时，第一次启动自动导入，导入后改名「…（已导入，可删除）」。
 
 ## 书籍和文档（1.6）
 
@@ -262,9 +291,9 @@ python -m venv .venv
 - 原书图示：AI 写 `![[原书图示 第N页 图号 名称 @左,上,右,下]]`，剪藏时 `book.place_figures` 按比例裁剪、缩到 960 宽压缩。非必要不用，每章最多 2 张。
 - 书籍界面在 `#bookMain`，`S.mode === 'book'`；视频相关按钮加了 `video-only` 类，在书籍界面隐藏。
 
-## 没有进仓库的东西（只在用户电脑的 `D:\mengren-learning` 里）
+## 没有进仓库的东西
 
-- `design/`：图标设计稿、原图、字体、其他配色方案。正式图标是「紫晶」（1.7.12 起，`design/recolor_full.py` 的 full-4：字、龙纹、边框、背景整体换成紫色，和金色的猛人截图教鞭、红宝石色的猛人快传区分开），在 `app/assets/` 和 `app/web/icon.png`。之前的「帝王紫」只换了背景、字还是金色，和另外两个软件放在一起分不清。
+- `design/`（只在 `D:\mengren-learning` 里，猛人灵修没有复制）：图标设计稿、原图、字体、其他配色方案。猛人灵修的图标是其中的 full-7「青碧」。下面说的「紫晶」是猛人学习的图标。正式图标是「紫晶」（1.7.12 起，`design/recolor_full.py` 的 full-4：字、龙纹、边框、背景整体换成紫色，和金色的猛人截图教鞭、红宝石色的猛人快传区分开），在 `app/assets/` 和 `app/web/icon.png`。之前的「帝王紫」只换了背景、字还是金色，和另外两个软件放在一起分不清。
 - `.venv/`、`dist/`、`dist-next/`、`build/`、`release/`。
 
 ## 还没在真实使用中验证的

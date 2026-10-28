@@ -1,6 +1,6 @@
 /* ---------- 主题 ---------- */
 :root {
-  --accent: #e8b04a;
+  --accent: #3cc8c0;
   --accent-ink: #1a1408;
   --accent-weak: color-mix(in srgb, var(--accent) 16%, transparent);
   --accent-line: color-mix(in srgb, var(--accent) 45%, transparent);
@@ -391,6 +391,7 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .toast { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 10px; padding: 10px 14px; box-shadow: var(--shadow); max-width: 460px; display: flex; gap: 10px; align-items: center; animation: rise .2s; }
 .toast.error { border-left-color: var(--danger); }
 .toast .btn { flex: none; }
+.toast > span { white-space: pre-line; }  /* 文字资料的出处原文分行显示 */
 @keyframes rise { from { transform: translateY(8px); opacity: 0; } }
 
 /* 存疑句：AI 校对时标出、需要回听的句子 */

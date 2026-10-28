@@ -15,8 +15,8 @@ for _old in Path(tempfile.gettempdir()).glob('mengren-play-test-*'):
 TMP = Path(tempfile.mkdtemp(prefix='mengren-play-test-'))
 os.environ['APPDATA'] = str(TMP / 'appdata')
 os.environ['LOCALAPPDATA'] = str(TMP / 'local')
-(TMP / 'appdata' / '猛人学习').mkdir(parents=True)
-(TMP / 'appdata' / '猛人学习' / 'settings.json').write_text(json.dumps({'storage_dir': str(TMP / 'store')}), encoding='utf-8')
+(TMP / 'appdata' / '猛人灵修').mkdir(parents=True)
+(TMP / 'appdata' / '猛人灵修' / 'settings.json').write_text(json.dumps({'storage_dir': str(TMP / 'store')}), encoding='utf-8')
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'app'))
 

@@ -22,8 +22,8 @@ if not (TM / '测试书籍.pdf').exists():
     subprocess.run([sys.executable, str(ROOT / 'tests' / 'make_test_book.py')], check=True)
 if not (TM / '测试电子书.epub').exists():
     subprocess.run([sys.executable, str(ROOT / 'tests' / 'make_test_ebooks.py')], check=True)
-(TMP / 'appdata' / '猛人学习').mkdir(parents=True)
-(TMP / 'appdata' / '猛人学习' / 'settings.json').write_text(json.dumps({'storage_dir': str(TMP / 'store')}), encoding='utf-8')
+(TMP / 'appdata' / '猛人灵修').mkdir(parents=True)
+(TMP / 'appdata' / '猛人灵修' / 'settings.json').write_text(json.dumps({'storage_dir': str(TMP / 'store')}), encoding='utf-8')
 sys.path.insert(0, str(ROOT / 'app'))
 
 from bridge import Api  # noqa: E402
@@ -55,7 +55,7 @@ for fname, kind in (('测试电子书.epub', 'epub'), ('测试电子书.mobi', '
     if kind in ('epub', 'mobi', 'pptx'):
         check(f'读取 {kind}：书名作者、图片抽出来', info['title'] in ('测试电子书', '测试演示') and info['author'] == '测试作者'
               and any(p.get('images') for p in info['pages']) and all(Path(x).exists() for p in info['pages'] for x in p.get('images') or []))
-check('新格式都在媒体库里列出、txt 不列', {'.epub', '.mobi', '.azw3', '.doc', '.ppt', '.pptx'} <= book.LIB_EXT and '.txt' not in book.LIB_EXT)
+check('新格式都在媒体库里列出（猛人灵修也列 txt / md 文章）', {'.epub', '.mobi', '.azw3', '.doc', '.ppt', '.pptx', '.txt', '.md'} <= book.LIB_EXT)
 check('模板自带的作者、标题不用（之后用文件名）', book.ebook.clean_meta({'title': '空白演示', 'author': 'Administrator'}) == {'title': '', 'author': ''})
 try:
     bad = TMP / '坏的.mobi'
@@ -94,7 +94,9 @@ check('序号：1、 01. 第三讲 三、 1.2 都认得；没序号的认不出'
 t1 = config.save_teacher({'name': '资料老师'})
 t2 = config.save_teacher({'name': '课程老师'})
 r = api.call('library_add_folder', {'path': str(C / '资料')})
-check('加文件夹：告诉界面加了几个、跳过了哪些格式（txt、字幕不算）', r['status'] == 'added' and r['doc'] == 2 and r['skipped'] == {'.zip': 1}, r)
+_txt = next((c for c in r['groups'][0]['children'] if c['ext'] == 'txt'), {})
+check('加文件夹：告诉界面加了几个、跳过了哪些格式（猛人灵修也列 txt 文章，字幕不算）；txt 没当书整理过，不算「未整理完」', r['status'] == 'added' and r['doc'] == 3
+      and r['skipped'] == {'.zip': 1} and _txt.get('pending') == [], r)
 api.call('library_set', {'path': str(C / '资料'), 'teacher': t1['id']})
 shutil.copy(VID, TMP / '单独.mp4')
 api.call('library_add_files', {'paths': [str(TMP / '单独.mp4'), str(C / '预告.mp4')]})
@@ -111,7 +113,7 @@ check('按实际层级显示：带序号的按序号在前，没序号的按下�
       [c['name'] for c in course['children']] == ['1、第一讲', '第三讲', '资料', '预告'], [c['name'] for c in course['children']])
 lesson = course['children'][0]
 check('子文件夹里按序号排（10 排在 2 后面）', [c['name'] for c in lesson['children']] == ['1、a', '2、b', '10、c'] and lesson['count'] == 3)
-check('文件夹显示里面一共几个', course['count'] == 3 + 1 + 2 + 1)
+check('文件夹显示里面一共几个（资料里的 txt 也算）', course['count'] == 3 + 1 + 3 + 1)
 ziliao = course['children'][2]
 check('合并后原来的设置带过来（绑定的老师）', ziliao['teacher'] == t1['id'] and not ziliao['top'])
 check('老师：自己绑定的用自己的', library.folder_teacher(str(C / '资料' / '讲义.pdf')) == t1['id'])
@@ -121,6 +123,7 @@ check('老师：上层绑定后，没单独绑定的子文件夹沿用上层', l
       and library.folder_teacher(str(C / '资料' / '讲义.pdf')) == t1['id'])
 
 # 不写课程重点（按文件夹设，下层沿用，可以单独改回来）
+library.SUMMARY_DEFAULT = 'on'  # 先按「最上层默认写」（猛人学习的默认）测下层沿用的机制；猛人灵修的默认（不写）在后面测
 api.call('library_set', {'path': str(C), 'no_summary': True})
 course = api.call('library', {})['groups'][1]
 first = course['children'][0]
@@ -137,6 +140,13 @@ api.call('library_set', {'path': str(C), 'no_summary': False})
 api.call('library_set', {'path': str(C / '资料'), 'no_summary': False})
 check('不写课程重点：都改回来以后，设置清干净（资料的老师还在）', not library.folder_no_summary(str(C / '预告.mp4'))
       and library.load()['dirs'][library._key(str(C / '资料'))] == {'teacher': t1['id'], 'collapsed': False}, library.load()['dirs'])
+library.SUMMARY_DEFAULT = 'off'
+_d0 = library.folder_no_summary(str(C / '预告.mp4'))
+api.call('library_set', {'path': str(C), 'no_summary': False})
+_d1 = library.folder_no_summary(str(C / '预告.mp4'))
+api.call('library_set', {'path': str(C), 'no_summary': True})
+check('猛人灵修默认：最上层没设时不写课程重点；单独设成「要写」的文件夹才写，改回来又不写', _d0 and not _d1
+      and library.folder_no_summary(str(C / '预告.mp4')))
 
 r = api.call('library_add_folder', {'path': str(C / '1、第一讲')})
 check('上层已经在了，再加子文件夹：提示已经在里面了，不重复加', r['status'] == 'inside' and r['parent_name'] == '课程')

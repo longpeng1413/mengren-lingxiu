@@ -28,7 +28,7 @@ def _packages():
 
 
 def virtual_dirs():
-    """Packages 下面所有转存的「猛人学习」数据文件夹。"""
+    """Packages 下面所有转存的「猛人灵修」数据文件夹。"""
     base = _packages()
     if not base.is_dir():
         return []

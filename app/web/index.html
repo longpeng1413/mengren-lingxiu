@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>猛人学习</title>
+<title>猛人灵修</title>
 <link rel="icon" href="icon.png">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
 <header class="topbar">
   <button class="btn icon-only" id="btnLibrary" title="显示/隐藏媒体库"><svg viewBox="0 0 24 24"><path d="M3 5h18M3 12h18M3 19h18"/></svg></button>
-  <div class="brand"><img src="icon.png" alt=""><span>猛人学习</span></div>
+  <div class="brand"><img src="icon.png" alt=""><span>猛人灵修</span></div>
   <div class="file-title" id="fileTitle"></div>
   <div class="teacher-chip" id="teacherChip" hidden>
     <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
@@ -67,7 +67,7 @@
     <div class="lib-head">
       <div class="lib-tabs" id="libTabs"><button class="lib-tab active" data-view="course" title="媒体库：视频、音频、书籍">课程</button><button class="lib-tab" data-view="mentor" title="老师工作台：和蒸馏好的老师对话">老师</button></div>
       <span class="grow"></span>
-      <button class="btn icon-only small mentor-only" id="mentorAdd" hidden title="加一位老师：从媒体库的课蒸馏一位新老师，或导入「04、外部知识转化库/01、老师分身蒸馏资料」里已经蒸馏好的老师文件夹"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M19 8v6m-3-3h6"/></svg></button>
+      <button class="btn icon-only small mentor-only" id="mentorAdd" hidden title="加一位老师：从媒体库的课和文章蒸馏一位新老师，或导入 Obsidian「灵修老师」里已经蒸馏好的老师文件夹"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M19 8v6m-3-3h6"/></svg></button>
       <button class="btn icon-only small course-only" id="libAddFolder" title="添加文件夹（包括子文件夹里的音视频）"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10v6m-3-3h6"/></svg></button>
       <button class="btn icon-only small course-only" id="libAddFiles" title="添加文件"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M12 12v6m-3-3h6"/></svg></button>
       <button class="btn icon-only small course-only" id="libRefresh" title="刷新"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></button>
@@ -83,7 +83,7 @@
     <div class="stage-empty" id="empty">
       <div class="empty-card" id="dropZone">
         <img src="icon.png" alt="">
-        <h1>猛人学习</h1>
+        <h1>猛人灵修</h1>
         <p>在左边的媒体库添加文件夹，点哪个看哪个；也可以直接打开或拖入文件。<br>支持视频、音频，以及书籍和文档（PDF、Word、TXT、Markdown）。</p>
         <div class="empty-btns">
           <button class="btn primary big" id="btnAddFolder2">添加文件夹</button>
@@ -107,13 +107,13 @@
         <span class="round-tools" id="roundTools" hidden>
           <button class="btn small" id="rtReply" title="每位老师看了别人的回答后再回应一轮（只用他自己课程里的内容），然后重新总结">让老师们互相回应</button>
           <button class="btn small" id="rtSummary" title="按现在每位老师的回答，重新写一次总结">重新总结</button>
-          <button class="btn small" id="rtSave" title="把整场讨论存进 Obsidian「04、外部知识转化库/02、主题蒸馏资料」的一个主题文件夹（再收藏就更新同一个文件）">★ 收藏到 Obsidian</button>
+          <button class="btn small" id="rtSave" title="把整场讨论存进 Obsidian「灵修主题」的一个主题文件夹（再收藏就更新同一个文件）">★ 收藏到 Obsidian</button>
         </span>
         <span class="round-tools" id="topicTools" hidden>
           <button class="btn small" id="tpOpen" title="在 Obsidian 里打开这份主题蒸馏">在 Obsidian 里打开</button>
           <button class="btn small" id="tpRedo" title="用现在各位老师的资料重新蒸馏（覆盖前备份）">重新蒸馏</button>
         </span>
-        <button class="btn small" id="mentorPrompts" title="查看软件蒸馏和对话时交给 AI 的提示词（知识库里也存了一份：02、规则体系/01、通用规则/08、AI蒸馏提示词）">提示词</button>
+        <button class="btn small" id="mentorPrompts" title="查看软件蒸馏和对话时交给 AI 的提示词原文">提示词</button>
       </div>
       <div class="mentor-distill" id="mentorDistill" hidden>
         <span class="md-msg" id="mdMsg"></span>
@@ -379,14 +379,14 @@
 <!-- 老师蒸馏：从媒体库选课（mentor.js 的 openDistill） -->
 <dialog id="dlgDistill" class="dialog distill-dlg">
   <form method="dialog">
-    <h2 id="dsTitle">从媒体库的课蒸馏一位老师</h2>
-    <p class="muted">AI 逐节把老师讲的观点拆成观点库（每条带出处），再合并成课程蒸馏、写出老师画像，写进 Obsidian。做完就能在老师工作台里和这位老师对话。</p>
-    <label class="ds-row">老师名字 <input id="dsName" placeholder="例如：人间落叶"></label>
-    <label class="ds-row">课程在哪个文件夹 <select id="dsFolder"></select></label>
+    <h2 id="dsTitle">从媒体库的课和文章蒸馏一位老师</h2>
+    <p class="muted">AI 逐份把老师讲的拆成观点库：观点、修法、原话、比喻和故事、问答（每条带出处），再合并成课程蒸馏、写出老师画像，写进 Obsidian 的「灵修老师」。音视频要先有字幕（猛人学习里识别好的直接能用）；文章、对话记录直接能选。做完就能在老师工作台里和这位老师对话。</p>
+    <label class="ds-row">老师名字 <input id="dsName" placeholder="例如：某某老师"></label>
+    <label class="ds-row">资料在哪个文件夹 <select id="dsFolder"></select></label>
     <div class="ds-tools"><button type="button" class="btn small" id="dsAll">全选</button><button type="button" class="btn small" id="dsNone">全不选</button><span class="muted" id="dsCount"></span></div>
     <div class="ds-list" id="dsList"></div>
     <p class="muted ds-note" id="dsTarget"></p>
-    <p class="muted ds-note">每节课调用一次「对话」用的 AI（ChatGPT 账号会占用额度），最后再合并两三次；30 分钟的课实测大约 3 分半钟，几十节的大课要几个小时。在后台做，可以照常看课；中途停了或额度用完，做完的课保存着，下次接着做。</p>
+    <p class="muted ds-note">每份资料调用一次「对话」用的 AI（ChatGPT 账号会占用额度），最后再合并两三次；30 分钟的课实测大约 3 分半钟，几十份资料要几个小时。在后台做，可以照常看课；中途停了或额度用完，做完的资料保存着，下次接着做。</p>
     <div class="dialog-btns">
       <button value="cancel" class="btn">取消</button>
       <span class="grow"></span>
@@ -400,7 +400,7 @@
   <form method="dialog">
     <h2 id="mlTitle">新建圆桌讨论</h2>
     <p class="muted" id="mlInfo"></p>
-    <label class="ds-row topic-only">主题 <input id="mlTopic" placeholder="例如：止损、仓位管理、交易系统怎么建"></label>
+    <label class="ds-row topic-only">主题 <input id="mlTopic" placeholder="例如：放下、面对痛苦、亲密关系、金钱观"></label>
     <label class="ds-row topic-only">想重点看什么（可以不填） <input id="mlNote" placeholder="例如：止损放在哪、亏了要不要加仓"></label>
     <label class="ds-row topic-only">结果放在哪个主题文件夹 <select id="mlFolder"></select></label>
     <div class="ds-tools"><span>选老师（至少两位）</span><span class="muted" id="mlCount"></span></div>
@@ -428,7 +428,7 @@
 <dialog id="dlgPrompts" class="dialog settings prompts-dlg">
   <form method="dialog">
     <h2>蒸馏和对话用的提示词</h2>
-    <p class="muted">这是软件实际交给 AI 的原文。知识库里也存了一份一样的：<code>02、规则体系/01、通用规则/08、AI蒸馏提示词</code>。想改提示词请告诉 AI 改软件（软件不读那份文件）。</p>
+    <p class="muted">这是软件实际交给 AI 的原文（灵修版：重视老师的原话、比喻和故事、怎么回应学员的困惑）。想改提示词请告诉 AI 改软件。</p>
     <div id="prList" class="prompts-list"></div>
     <div class="dialog-btns"><span class="grow"></span><button value="close" class="btn primary">关闭</button></div>
   </form>
@@ -439,7 +439,7 @@
     <h2 id="tmTitle">这节课的新术语</h2>
     <p class="muted" id="tmInfo"></p>
     <div class="tm-new" id="tmNew" hidden>
-      <label class="ds-row">老师名字 <input id="tmName" list="tmNames" placeholder="例如：人间落叶（已有的老师选他的名字，就加进他的术语表）"><datalist id="tmNames"></datalist></label>
+      <label class="ds-row">老师名字 <input id="tmName" list="tmNames" placeholder="例如：某某老师（已有的老师选他的名字，就加进他的术语表）"><datalist id="tmNames"></datalist></label>
       <label class="ds-row">以后哪个文件夹里的课都用这位老师 <select id="tmBind"></select></label>
     </div>
     <div id="tmList" class="tm-list"></div>
@@ -497,7 +497,7 @@
 
       <section data-h="start">
         <h3>快速开始</h3>
-        <p>猛人学习把本地的课程视频、音频和书籍、文档整理成可以放进 Obsidian 知识库的笔记。第一次使用按下面四步来：</p>
+        <p>猛人灵修是给灵修、心灵成长老师用的整理和蒸馏工具：把老师的课程音视频、文章、对话记录整理好，蒸馏成观点库、语录、比喻和故事、问答和老师画像，然后像向老师本人提问一样和他对话。它从猛人学习改出来，和猛人学习共用视频旁边的字幕文件：在猛人学习里识别好的课，这里直接能用。第一次使用按下面四步来：</p>
         <ol>
           <li><b>设置 AI 服务</b>：点右上角的齿轮打开「设置」。
             <ul>
@@ -606,8 +606,8 @@
               <li><code>风级, 风机 => 峰级</code>：常见识别错误，交给 AI 结合上下文判断，不直接替换；</li>
               <li><code>托破旋 =>! 拓扑学</code>：确定不会误伤的，识别完直接替换。单字或常用词不要加感叹号，否则「部分」会被改成「部峰」。</li>
             </ul></li>
-          <li><b>逐课积累</b>：AI 区「课程重点」页的「新术语」按钮（一键整理的最后一步也会做）：AI 从这节课的校对改动（AI 改的、看画面改的、你手动改的）和完整字幕里，找出术语表还没有的新术语和识别错误，弹出来让你勾选、改字、点时间回听；确认的才加进去。关联了文件时写在文件末尾的「逐课补充（猛人学习）」一节（表格，软件下次就会用上），写之前自动备份到 <code>%APPDATA%\猛人学习\backups\术语表</code>；只记名称，不写定义。</li>
-          <li><b>新老师的第一节课</b>：还没有这位老师、也没有术语表时，同样点「新术语」（或一键整理勾上「新术语」，没选老师时默认勾上）。AI 找出这节课的专用术语，弹出来让你勾选，再<b>填老师名字</b>、选「以后哪个文件夹里的课都用这位老师」（默认是加进媒体库的那个文件夹），点「建立术语表」：软件建好老师档案，在 Obsidian「02、规则体系/02、课程专用规则」里建一份「老师名课程术语表」（结构和峰级那份一样：怎么用 / 术语 / 识别错误对照 / 逐课补充），关联上，把勾选的写进「逐课补充」，并把那个文件夹绑定这位老师。以后这个文件夹里的课自动用这位老师：识别时用这些术语当热词，每节课整理完接着找新术语让你勾选。填的名字和已有的老师一样时，就加进他原来的术语表。</li>
+          <li><b>逐课积累</b>：AI 区「课程重点」页的「新术语」按钮（一键整理的最后一步也会做）：AI 从这节课的校对改动（AI 改的、看画面改的、你手动改的）和完整字幕里，找出术语表还没有的新术语和识别错误，弹出来让你勾选、改字、点时间回听；确认的才加进去。关联了文件时写在文件末尾的「逐课补充（猛人灵修）」一节（关联的是猛人学习建的术语表时，接着写它原来的「逐课补充（猛人学习）」）（表格，软件下次就会用上），写之前自动备份到 <code>%APPDATA%\猛人灵修\backups\术语表</code>；只记名称，不写定义。</li>
+          <li><b>新老师的第一节课</b>：还没有这位老师、也没有术语表时，同样点「新术语」（或一键整理勾上「新术语」，没选老师时默认勾上）。AI 找出这节课的专用术语，弹出来让你勾选，再<b>填老师名字</b>、选「以后哪个文件夹里的课都用这位老师」（默认是加进媒体库的那个文件夹），点「建立术语表」：软件建好老师档案，在 Obsidian「灵修术语表」文件夹里建一份「老师名术语表」（怎么用 / 术语 / 识别错误对照 / 逐课补充），关联上，把勾选的写进「逐课补充」，并把那个文件夹绑定这位老师。以后这个文件夹里的课自动用这位老师：识别时用这些术语当热词，每节课整理完接着找新术语让你勾选。填的名字和已有的老师一样时，就加进他原来的术语表。</li>
           <li><b>术语说明</b>：放整份术语说明文档，只给 AI 参考，不传给识别服务。关联了文件时一般留空。</li>
           <li>剪藏笔记里<b>不写老师</b>：一份术语表常常是几位老师共用的（例如「峰级分析」），它的名字只当笔记的标签。讲课老师请在 Obsidian 里给笔记加一个「老师」属性自己填，重新剪藏会保留。</li>
           <li><b>剪藏子文件夹</b>、<b>单独的课程重点模板</b>：可选。</li>
@@ -674,46 +674,49 @@
 
       <section data-h="mentor" hidden>
         <h3>老师工作台（和老师对话）</h3>
-        <p>把一位老师的全部课程蒸馏好以后，AI 就能按这位老师的知识和思路和你对话，像向老师本人提问一样。</p>
+        <p>把一位灵修 / 心灵成长老师的课程和文字资料蒸馏好以后，AI 就能按这位老师的教导、语气和回应方式和你对话，像向老师本人请教一样。<b>它是 AI 按老师的资料模拟的，不是老师本人</b>；问它时它也会照实这么说。</p>
         <h4>怎么开始：蒸馏一位老师</h4>
         <ul>
-          <li><b>从媒体库的课蒸馏</b>：左栏顶上切到「老师」，点人像加号按钮 →「从媒体库的课蒸馏一位新老师」（或在「课程」里右键一个文件夹 →「用这个文件夹的课蒸馏一位老师」）。填老师名字，选课所在的文件夹，勾选要用的课（要先生成字幕；有课程重点更好，不用先剪藏、不用先校对），点「开始蒸馏」。</li>
-          <li><b>蒸馏做三步</b>：① 逐节提取观点库：每节课单独让 AI 读完整字幕，把老师讲的拆成一条一条，每条带出处（第几节课第几分几秒）、标明是观点、方法还是定义，老师讲自己的经历和立场单独列；② 合并成「课程蒸馏」：老师的体系、核心观点、反复强调的、前后不一致的、没讲到的；③ 写「老师画像」：第一节是软件固定写的对话规则，后面是他的信念、思考顺序、反对什么、常用比喻、说话风格。课很多（几十节）时，第 ② 步会先分组小结再合并。</li>
-          <li><b>写到哪里</b>：Obsidian「04、外部知识转化库/01、老师分身蒸馏资料/老师名/」里的「01、观点库（逐节提取）」「02、课程蒸馏」「03、老师画像（对话用）」。这些是 AI 写的，状态标着「待作者审核」；属性里还写着「来源人工校对：几节 / 共几节」（老师普通话标准、识别准确的课可以不校对，可能识别错的地方会放进「存疑」）。AI 标的出处时间超出课程长度的标「时间待核对」，写了观点库里没有的编号的在文末列出来。</li>
-          <li><b>在后台做</b>：30 分钟的课实测大约 3 分半钟（几十节的大课要几个小时），用「对话」的 AI（ChatGPT 账号会占用额度）。对话区上方和左栏显示进度，可以照常看课；点「停止」或额度用完，做完的课都存着，右键老师「继续蒸馏」接着做，不重复花钱。</li>
-          <li><b>老师出了新课</b>：右键老师 →「更新蒸馏」，勾上新课。只提取新课和字幕改过的课，再重新合并、写画像。课程编号 S01、S02……一旦分配就不变，以前对话里的出处照样能点。</li>
+          <li><b>准备资料</b>：音视频课要先有字幕（在猛人灵修或猛人学习里识别都行，两个软件共用视频旁边的字幕文件，猛人学习里识别好的课这里直接能用；不用先校对、不用写课程重点）。文章、对话记录、书（txt、md、Word、PDF、EPUB 等）放进媒体库的文件夹就行，不用另外处理。</li>
+          <li><b>从媒体库蒸馏</b>：左栏顶上切到「老师」，点人像加号按钮 →「从媒体库的课和文章蒸馏一位新老师」（或在「课程」里右键一个文件夹 →「用这个文件夹的课和文章蒸馏一位老师」）。填老师名字，选资料所在的文件夹，勾选要用的课和文章，点「开始蒸馏」。</li>
+          <li><b>蒸馏做三步</b>：① 逐份提取观点库：每份资料单独让 AI 读完原文，拆出<b>观点、修法、定义</b>，<b>老师原话</b>（语录，照录），<b>比喻和故事</b>，<b>问答</b>（学员问了什么、老师怎么回应、用的什么方式：先接纳还是先点破、反问、讲故事、带着做练习），以及老师讲自己的经历；每条都带出处。② 合并成「课程蒸馏」：一句话、核心教导体系、核心观点、修法、反复强调的、常用比喻和故事、前后不一致的、没讲到的、可以实践的。③ 写「老师画像」：第一节是软件固定写的对话规则，后面是他的核心信念、<b>他怎么回应一个人的困惑</b>、语录、比喻和故事、说话风格、回答示范。资料很多时，第 ② 步会先分组小结再合并。</li>
+          <li><b>出处</b>：音视频写成 <code>S02 19:54</code>（第 2 份资料 19 分 54 秒）；文字资料写成 <code>S03 第12段</code>（第 3 份资料第 12 段，每个非空行算一段；PDF 是第几页）。观点库编号：<code>S02-21</code> 观点，<code>S02-Y3</code> 原话，<code>S02-B1</code> 比喻和故事，<code>S02-W1</code> 问答，<code>S02-A1</code> 老师自述。</li>
+          <li><b>写到哪里</b>：Obsidian 库（「设置 → Obsidian」里选的那个库）的「灵修老师/老师名/」里的「01、观点库（逐节提取）」「02、课程蒸馏」「03、老师画像（对话用）」。这些是 AI 写的，状态标着「待作者审核」；属性里还写着「来源人工校对：几节 / 共几节」（文字资料算校对过；音视频字幕没校对的，可能识别错的地方会放进「存疑」）。AI 标的出处超出资料长度的标「待核对」，写了观点库里没有的编号的在文末列出来。</li>
+          <li><b>在后台做</b>：30 分钟的课实测大约 3 分半钟（几十份资料要几个小时），用「对话」的 AI（ChatGPT 账号会占用额度）。对话区上方和左栏显示进度，可以照常看课；点「停止」或额度用完，做完的资料都存着，右键老师「继续蒸馏」接着做，不重复花钱。</li>
+          <li><b>老师有了新资料</b>：右键老师 →「更新蒸馏」，勾上新的课或文章。只提取新的和改过的，再重新合并、写画像。编号 S01、S02……一旦分配就不变，以前对话里的出处照样能点。</li>
           <li><b>覆盖前会问你</b>：上次蒸馏之后你在 Obsidian 里改过这几份文件的，开始前会先问；每次覆盖前都整份备份到软件的「backups\蒸馏」（每位老师留 20 份）。</li>
         </ul>
         <h4>或者：导入已经蒸馏好的老师文件夹</h4>
         <ul>
-          <li>点人像加号按钮 →「导入已经蒸馏好的老师文件夹」，选「04、外部知识转化库/01、老师分身蒸馏资料」里的老师文件夹，里面要有「观点库」和「老师画像」两份文件（文件名里带这几个字）。软件会按观点库开头的「来源」表找到每篇课程笔记里记的视频，出处才能跳转；找不到视频的课会标出来。</li>
+          <li>点人像加号按钮 →「导入已经蒸馏好的老师文件夹」，选「灵修老师」里的老师文件夹，里面要有「观点库」和「老师画像」两份文件（文件名里带这几个字）。软件会按观点库开头的「来源」表找到每篇课程笔记里记的视频，出处才能跳转；找不到的会标出来。</li>
           <li>Obsidian 里的观点库、老师画像以那边为准：你在 Obsidian 里改了，下一次提问就用改过的。</li>
         </ul>
         <h4>对话</h4>
         <ul>
           <li><b>提问</b>：下面输入框里打字，Enter 发送（Shift + Enter 换行），写的时候点「停止」可以停下。第一次打开有几个示例问题，点一下就问。</li>
-          <li><b>出处</b>：课程里讲过的内容带出处，例如 <code>S02 19:54</code>（第 2 节课 19 分 54 秒）或 <code>S02-21</code>（观点库第 2 节第 21 条）。<b>鼠标停在出处上能看到那一秒前后的原话；点一下切到「课程」，打开那节课从那一秒开始播放。</b>看完点左上角「老师」回到对话。观点库和课程里都找不到的出处会标成红色，那多半是 AI 编的，要小心。</li>
-          <li><b>蓝色框「AI 推测」</b>：课程里没讲的问题，AI 按老师讲过的原则推测他可能怎么看，不是课程内容。<b>紫色框「AI 自己的看法」</b>：只在你要求时才有，不代表老师。</li>
+          <li><b>出处</b>：资料里讲过的内容带出处。<b>鼠标停在出处上能看到原话；音视频的出处点一下切到「课程」，打开那节课从那一秒开始播放；文字资料的出处点一下显示那一段原文，还可以「打开这份资料」。</b>看完点左上角「老师」回到对话。观点库和资料里都找不到的出处会标成红色，那多半是 AI 编的，要小心。</li>
+          <li><b>蓝色框「AI 推测」</b>：资料里没讲的问题，AI 按老师讲过的教导推测他可能怎么看，不是他资料里的内容。<b>紫色框「AI 自己的看法」</b>：只在你要求时才有，不代表老师。</li>
+          <li><b>情绪很痛苦的时候</b>：如果你在对话里流露出很深的痛苦，或者有伤害自己的念头，AI 会先关心你，并建议你联系身边信任的人和专业的心理援助（例如当地的心理援助热线、医院的心理科），不会只用灵性道理带过。AI 不能代替真人的陪伴和专业帮助。</li>
           <li><b>☆ 收藏</b>：觉得好的回答点它下面的「☆ 收藏」，连同你的问题追加到老师文件夹里的「对话精选.md」（写之前会备份），按钮变成「★ 已收藏」。<b>★ 收藏整个对话</b>（对话区右上角）：这个对话里还没收藏的回答一次都收藏，已经收藏的不重复。<b>对话精选</b>：在 Obsidian 里打开收藏的内容。</li>
-          <li><b>朗读</b>：对话区右上角的「朗读」读老师的回答，用法和课程重点的朗读一样。</li>
+          <li><b>朗读</b>：对话区右上角的「朗读」读老师的回答。</li>
         </ul>
         <h4>圆桌讨论（几位老师一起讨论一个问题）</h4>
         <ul>
           <li><b>新建</b>：左栏老师下面的「圆桌讨论 ＋ 新建」（或人像加号按钮里的「新建圆桌讨论」），勾选两位以上蒸馏好的老师。</li>
-          <li><b>提问</b>：每位老师<b>只用自己的老师画像和课程资料</b>各自回答，一位一位写出来；出处按是哪位老师说的来认，点了跳到他那节课那一秒。几位老师都答完，AI 自动写总结：共识、分歧和原因、各自的适用条件、还待验证的问题（总结是 AI 归纳的，不是任何一位老师的原话）。</li>
-          <li><b>让老师们互相回应</b>：每位老师看了别人的回答再回应一轮，仍然只能用自己课程里的内容，超出的标「AI 推测」，然后重新总结。「重新总结」只重写总结。</li>
-          <li><b>★ 收藏到 Obsidian</b>：选一个主题文件夹，整场讨论存进「04、外部知识转化库/02、主题蒸馏资料/那个主题/日期、问题、多位老师讨论.md」；以后再点就更新同一个文件（覆盖前备份）。</li>
+          <li><b>提问</b>：每位老师<b>只用自己的老师画像和资料</b>各自回答，一位一位写出来；出处按是哪位老师说的来认。几位老师都答完，AI 自动写总结：共识、分歧和原因、各自的前提和适用的人、还可以继续问的（总结是 AI 归纳的，不是任何一位老师的原话）。</li>
+          <li><b>让老师们互相回应</b>：每位老师看了别人的回答再回应一轮，仍然只能用自己资料里的内容，超出的标「AI 推测」，然后重新总结。「重新总结」只重写总结。</li>
+          <li><b>★ 收藏到 Obsidian</b>：选一个主题文件夹，整场讨论存进 Obsidian 库的「灵修主题/那个主题/日期、问题、多位老师讨论.md」；以后再点就更新同一个文件（覆盖前备份）。</li>
           <li>每提一个问题调用 AI「老师人数 + 1」次。讨论记录保存在软件里；右键可以改名、删除。</li>
         </ul>
-        <h4>主题蒸馏（写书时参考）</h4>
+        <h4>主题蒸馏（比较几位老师怎么讲同一个主题）</h4>
         <ul>
-          <li><b>新建</b>：左栏「主题蒸馏 ＋ 新建」，填主题（例如「止损」），可以写想重点看什么，选结果放在哪个主题文件夹（交易认知、交易系统、分析技术、操作技术、执行力管理、跨主题综合），勾选两位以上老师。</li>
-          <li><b>在后台做</b>：先从每位老师的观点库里挑出和主题相关的条目和课程原文，AI 整理出「他关于这个主题讲了什么」；再合并成一份比较文档：一句话、每位老师怎么说、共识、分歧和原因、适用条件和边界、来源质量、还待验证的问题。写进「04、外部知识转化库/02、主题蒸馏资料/那个主题/日期、主题、跨来源蒸馏.md」。</li>
-          <li>做好后在软件里也能看，出处写成 <code>人间落叶 S02-21</code> 这样，点了跳到那位老师那节课；对不上的出处标红，文末也列出来。右键可以重新蒸馏（覆盖前备份）、删除记录（Obsidian 里的文件不动）。</li>
+          <li><b>新建</b>：左栏「主题蒸馏 ＋ 新建」，填主题（例如「放下」「面对痛苦」），可以写想重点看什么，选结果放在哪个主题文件夹（觉察与修行、情绪与身心、关系与爱、财富与事业、生死与生命意义、跨主题综合），勾选两位以上老师。</li>
+          <li><b>在后台做</b>：先从每位老师的观点库里挑出和主题相关的条目和原文，AI 整理出「他关于这个主题讲了什么」（观点、修法、原话、比喻和故事）；再合并成一份比较文档：一句话、每位老师怎么说、共识、分歧和原因、前提和适用的人、来源质量、还可以继续问的。写进 Obsidian 库的「灵修主题/那个主题/日期、主题、跨来源蒸馏.md」。</li>
+          <li>做好后在软件里也能看，出处写成 <code>某某老师 S02-21</code> 这样，点了跳到那位老师的资料；对不上的出处标红，文末也列出来。右键可以重新蒸馏（覆盖前备份）、删除记录（Obsidian 里的文件不动）。</li>
         </ul>
         <h4>提示词</h4>
         <ul>
-          <li>对话区右上角的「提示词」：显示软件蒸馏和对话时交给 AI 的提示词原文（逐节提取、合并、写画像、对话、圆桌讨论、主题蒸馏）。知识库「02、规则体系/01、通用规则/08、AI蒸馏提示词」里也存了一份一样的。</li>
+          <li>对话区右上角的「提示词」：显示软件蒸馏和对话时交给 AI 的提示词原文（逐份提取、合并、写画像、对话、圆桌讨论、主题蒸馏）。</li>
         </ul>
         <h4>对话记录</h4>
         <ul>
@@ -728,7 +731,7 @@
         <p>按顺序自动完成勾选的步骤：生成字幕 → AI 按术语表校对 → 挑必要的插图 → 用画面复核校对后还存疑的句子 → 翻译（英文课程）→ 课程重点（含查漏）→ 剪藏 → 找新术语（弹出来让你勾选）。某一步失败会停下来并告诉你原因，前面做完的步骤已经保存；「用画面复核存疑句」「查漏补缺」失败不影响后面的步骤。整理完建议检查一遍存疑句，打开「已校对」再剪藏。</p>
         <p><b>单独点的整理按钮</b>（生成字幕、AI 校对、课程重点等）做的时候，也可以切到别的课：任务在后台接着做，上方进度条写明是哪节课，做完会提示你；切回来时还没做完的话会接着显示进度。只有「AI 写图片说明」「AI 重画」「AI 读目录分章」这几个短任务要等它做完再切。</p>
         <p><b>整理时可以切到别的课</b>：点「开始」后，这节课交给后台整理，你马上可以打开别的课听课、校对。上方的「后台整理」条显示整理到哪了，点它可以看排着的课、停下某一节；媒体库里标「整理中 xx%」「排队中」。在媒体库右键一节课选「排进后台整理」，可以一次排好几节（按一键整理默认的步骤，只做还没做完的），一节一节接着整理。整理完会提示你；这节课正开着就直接显示结果，勾了「剪藏」或有新术语要勾选的，也在这节课开着时接着做。最好整理 A 课、校对 B 课；你在正被整理的课里改了东西，保存时会先问你要哪一份。软件完全退出时（不是点 × 收到托盘），没整理完的会停下，做完的步骤已经保存，下次再点一键整理会接着做。</p>
-        <p><b>让 AI 在后台自动整理</b>：也可以让 Claude Code、Codex 这类 AI 助手调用猛人学习，替你做一键整理（不剪藏，用法见软件开源页的「命令行」说明）。它和这里的一键整理是同一套流程，整理好的课在媒体库里点刷新就能看到。你正开着的课如果被后台整理了，打开时会提示；保存时会先问你要后台整理的结果还是你自己的版本，不会互相覆盖。</p>
+        <p><b>让 AI 在后台自动整理</b>：也可以让 Claude Code、Codex 这类 AI 助手调用猛人灵修，替你做一键整理（不剪藏，用法见软件开源页的「命令行」说明）。它和这里的一键整理是同一套流程，整理好的课在媒体库里点刷新就能看到。你正开着的课如果被后台整理了，打开时会提示；保存时会先问你要后台整理的结果还是你自己的版本，不会互相覆盖。</p>
       </section>
 
       <section data-h="export" hidden>
@@ -740,7 +743,7 @@
         <h3>剪藏到 Obsidian</h3>
         <ul>
           <li>点顶栏「剪藏」。笔记结构：属性（视频文件、人工校对、剪藏时间、tags。tags 是 Obsidian 固定的，保持英文）→ 标题（下面不写老师、系列、时长；老师和归类请在 Obsidian 里自己处理，自己加的属性重新剪藏会保留）→ 课程重点（含必要的插图）→ 来源情况 → 完整带时间戳的字幕（存疑句会标出）。不附画面记录，笔记只有课程重点和完整字幕。</li>
-          <li>存放位置：「设置 → Obsidian」里的文件夹，按老师分子文件夹；文件名格式可以设置（比如 <code>{title}（猛人学习）</code>）。插图放在笔记旁边的 <code>image</code> 文件夹。</li>
+          <li>存放位置：「设置 → Obsidian」里的文件夹，按老师分子文件夹；文件名格式可以设置（比如 <code>{title}（猛人灵修）</code>）。插图放在笔记旁边的 <code>image</code> 文件夹。</li>
           <li>同一节课再剪藏会更新原来那篇笔记——你在 Obsidian 里移动或改名了也能找到；软件不写「状态」（以前给交叉审核用的，已经不需要）；你自己在 Obsidian 里加的属性（比如状态、老师）重新剪藏都会保留。</li>
           <li><b>在 Obsidian 里加自己的内容，重新剪藏不会丢</b>：重新剪藏只更新软件负责的部分（属性里软件写的那些、「## 课程重点」「## 完整字幕」两节），下面这些原样保留：
             <ul>
@@ -749,7 +752,7 @@
               <li>自己加的属性、标签（tags）、状态。</li>
             </ul>
             直接改「课程重点」「完整字幕」里软件写的文字，重新剪藏会被覆盖——要改这些，请在软件里改。</li>
-          <li>如果这篇笔记上次剪藏后在 Obsidian 里改过，剪藏前会先问你；确认后旧笔记先备份到 <code>%APPDATA%\猛人学习\backups\笔记</code> 再覆盖。剪藏后又在软件里改了字幕或课程重点，媒体库会显示「待更新剪藏」。</li>
+          <li>如果这篇笔记上次剪藏后在 Obsidian 里改过，剪藏前会先问你；确认后旧笔记先备份到 <code>%APPDATA%\猛人灵修\backups\笔记</code> 再覆盖。剪藏后又在软件里改了字幕或课程重点，媒体库会显示「待更新剪藏」。</li>
         </ul>
       </section>
 
@@ -812,9 +815,9 @@
       <section data-h="data" hidden>
         <h3>数据和隐私</h3>
         <ul>
-          <li><b>字幕、课程重点、插图说明、对话、历史版本</b>：存在视频旁边的 <code>视频名.mp4.猛人学习.json</code>；书籍的整理结果存在文档旁边的 <code>书名.pdf.猛人学习.json</code>。删了就没了。改名前的 <code>.猛人字幕.json</code> 照样能读，下次保存时自动改名。</li>
-          <li><b>设置、API 密钥、ChatGPT 登录、老师档案、媒体库、播放进度</b>：在 <code>%APPDATA%\猛人学习\</code>，都很小。不要删；换电脑用「导出设置」。</li>
-          <li><b>整理任务记录</b>（每次整理每一步做得怎样、出错的原因，最多留 300 条）：在 <code>%APPDATA%\猛人学习\tasks\</code>，可以删。</li>
+          <li><b>字幕、课程重点、插图说明、对话、历史版本</b>：存在视频旁边的 <code>视频名.mp4.猛人学习.json</code>；书籍的整理结果存在文档旁边的 <code>书名.pdf.猛人学习.json</code>。这些文件和猛人学习<b>共用同一份</b>（两个软件都能打开、都能改；同一节课不能两边同时写，软件会排队等对方写完）。删了就没了。改名前的 <code>.猛人字幕.json</code> 照样能读，下次保存时自动改名。</li>
+          <li><b>设置、API 密钥、ChatGPT 登录、老师档案、媒体库、播放进度</b>：在 <code>%APPDATA%\猛人灵修\</code>（和猛人学习的分开），都很小。不要删；换电脑用「导出设置」。</li>
+          <li><b>整理任务记录</b>（每次整理每一步做得怎样、出错的原因，最多留 300 条）：在 <code>%APPDATA%\猛人灵修\tasks\</code>，可以删。</li>
           <li><b>缓存</b>（转换后的视频、抽出的音频、关键帧截图、书籍页面图）和<b>日志</b>：在软件文件夹里的「缓存（可随时删除）」「日志（可随时删除）」，可以随时删，会自动清理：音频 3 天、截图和转换后的视频 30 天没用就删，转换后的视频最多留 5GB。「设置 → 关于与数据」里能看到占了多少，也能一键清空。</li>
           <li>软件没有服务器，不收集任何数据。音频只发给你选的识别服务，字幕、截图、书页只发给你选的 AI 服务。密钥只存在这台电脑上，日志里不记录密钥。</li>
         </ul>
@@ -835,7 +838,7 @@
     </div>
   </div>
   <div class="dialog-btns settings-btns">
-    <span class="muted small-text">猛人学习（作者：longpeng1413 和 Claude）　开源：github.com/longpeng1413/mengren-learning</span>
+    <span class="muted small-text">猛人灵修（作者：longpeng1413 和 Claude）　开源：github.com/longpeng1413/mengren-lingxiu</span>
     <span class="grow"></span>
     <button class="btn primary" id="helpClose">知道了</button>
   </div>
@@ -888,7 +891,7 @@
               <div class="file-link"><code class="path" id="tFile">没有关联</code><button class="btn small" id="tFilePick">选择文件…</button><button class="btn small" id="tFileClear">取消关联</button></div>
               <div class="hint" id="tFileHint">关联后，软件每次都读这个文件的最新内容：小节里的「正确写法 / 标准写法」和热词当术语，「ASR 常见错误」表当识别错误参考，整份文件给 AI 当术语说明。以后只在 Obsidian 里改术语表就行。</div>
               <div class="file-link" id="tFileActions" hidden><button class="btn small" id="tFileView" title="看软件从文件里读到的每个术语、识别错误，以及重复的条目在第几行">查看术语和重复检查</button><button class="btn small" id="tFileOpen" title="打开这份术语表，在 Obsidian 里手动修改">在 Obsidian 里打开</button></div></div>
-            <div class="field"><div class="label">老师和课程背景（可选）</div><input id="tAbout" placeholder="例如：期货交易，讲交易底层逻辑、波段和仓位管理"></div>
+            <div class="field"><div class="label">老师和课程背景（可选）</div><input id="tAbout" placeholder="例如：身心灵成长，讲觉察、情绪疗愈和亲密关系"></div>
             <div class="field"><div class="label">术语表（手写，可选；关联了文件时，这里的会和文件里的合在一起用）</div>
               <textarea id="tTerms" rows="10" spellcheck="false" placeholder="每行一个或几个术语（逗号隔开）：&#10;峰级, 峰级线, 破级&#10;&#10;常见识别错误（交给 AI 结合上下文判断，不直接替换）：&#10;风级, 风机 => 峰级&#10;&#10;确定不会误伤的，加感叹号，识别完直接替换：&#10;托破旋 =>! 拓扑学"></textarea>
               <div class="hint" id="tTermsHint"></div>
@@ -922,15 +925,16 @@
         <div class="field"><textarea data-k="summary_template" id="summaryTemplate" rows="20" spellcheck="false"></textarea></div>
         <button class="btn small" id="resetTemplate">恢复默认模板</button>
         <div class="field" style="margin-top:14px"><label class="check"><input type="checkbox" data-k="auto_review"> 生成课程重点后，自动让 AI 对照完整字幕「查漏补缺」（多一次 AI 调用，补上漏掉的老师自述、举例、课程安排等）</label></div>
+        <div class="field"><label class="check"><input type="checkbox" data-k="auto_frames"> 一键整理、后台整理时自动「找关键帧」（给课程重点挑插图。灵修课一般不需要，默认关；关着时在一键整理里手动勾选照样会找）</label></div>
       </section>
 
       <section data-sec="obsidian" hidden>
         <h3>Obsidian</h3>
         <div class="field"><div class="label">库的位置</div><div class="key-row"><input data-k="obsidian.vault"><button class="btn small" id="pickVault">选择…</button></div></div>
-        <div class="field"><div class="label">存到库里的哪个文件夹</div><div class="key-row"><input data-k="obsidian.folder" placeholder="例如：猛人学习 或 学习/视频笔记"><button class="btn small" id="pickFolder">选择…</button></div></div>
-        <div class="field"><label class="check"><input type="checkbox" data-k="obsidian.teacher_subfolder"> 按老师分子文件夹（例如 猛人学习/大聪老师/）</label></div>
+        <div class="field"><div class="label">存到库里的哪个文件夹</div><div class="key-row"><input data-k="obsidian.folder" placeholder="例如：灵修课程 或 学习/课程笔记"><button class="btn small" id="pickFolder">选择…</button></div></div>
+        <div class="field"><label class="check"><input type="checkbox" data-k="obsidian.teacher_subfolder"> 按老师分子文件夹（例如 灵修课程/某某老师/）</label></div>
         <div class="field"><div class="label">笔记文件名</div><input data-k="obsidian.name_pattern" placeholder="{title}">
-          <div class="hint">{title} 是视频名，{teacher} 是老师，{series} 是媒体库文件夹名。例如 <code>{title}（猛人学习）</code>。</div></div>
+          <div class="hint">{title} 是视频名，{teacher} 是老师，{series} 是媒体库文件夹名。例如 <code>{title}（猛人灵修）</code>。</div></div>
         <div class="label strong" style="margin-top:18px">书籍和文档</div>
         <div class="field"><div class="label">存到库里的哪个文件夹</div><div class="key-row"><input data-k="obsidian.book_folder" placeholder="例如：03、收集箱/01、外部原始资料/01、文章与书籍资料"><button class="btn small" id="pickBookFolder">选择…</button></div>
           <div class="hint">每本书一个文件夹：<code>《书名》作者/00、全书总览.md</code>、<code>01、第一章 ….md</code>…，必要的原书图示放在 <code>image</code> 里。</div></div>
@@ -1063,13 +1067,13 @@
 
       <section data-sec="about" hidden>
         <h3>关于与数据</h3>
-        <p>猛人学习（作者：longpeng1413 和 Claude）　版本 <b id="aboutVersion"></b>　·　开源项目：<a href="#" id="aboutHome">github.com/longpeng1413/mengren-learning</a></p>
+        <p>猛人灵修（作者：longpeng1413 和 Claude）　版本 <b id="aboutVersion"></b>　·　开源项目：<a href="#" id="aboutHome">github.com/longpeng1413/mengren-lingxiu</a></p>
 
         <div class="label strong">点右上角 × 时</div>
         <div class="field"><label class="check"><input type="checkbox" data-k="close_to_tray"> 收到屏幕右下角（任务栏通知区域），软件继续运行；单击那里的图标打开，右键「退出」才真正退出。不勾选就是点 × 直接退出。</label></div>
 
         <div class="label strong">换电脑：导出 / 导入设置</div>
-        <p class="hint">导出成一个文件，在新电脑的猛人学习里导入，就能直接用原来的设置、各家 API 密钥、ChatGPT 登录、老师和术语表。</p>
+        <p class="hint">导出成一个文件，在新电脑的猛人灵修里导入，就能直接用原来的设置、各家 API 密钥、ChatGPT 登录、老师和术语表。</p>
         <div class="field">
           <label class="check"><input type="checkbox" id="exKeys" checked> 包含 API 密钥和 ChatGPT 登录（文件要妥善保管，不要发给别人）</label>
           <label class="check"><input type="checkbox" id="exLibrary"> 包含媒体库的文件夹列表（新电脑上路径相同时才有用）</label>

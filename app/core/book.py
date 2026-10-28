@@ -4,7 +4,7 @@
 - 以书上印的页码（P42）作为回溯锚点；书上没有页码时写「PDF 第 X 页」；
 - 一章一章整理：章节 MD 按规范的固定栏目；最后生成「00、全书总览」；
 - 原书图示非必要不用，每章最多 2 张，按 AI 给的位置裁剪、压缩后放进笔记旁边的 image 文件夹。
-整理结果存在原文件旁边的「文件名.猛人学习.json」里，剪藏时写成 Obsidian 笔记。"""
+整理结果存在原文件旁边的「文件名.猛人学习.json」里（和猛人学习共用），剪藏时写成 Obsidian 笔记。"""
 import ctypes
 import os
 import re
@@ -16,12 +16,14 @@ from collections import Counter
 from pathlib import Path
 
 from . import ebook
-from .config import CACHE_DIR
+from .config import APP_NAME, CACHE_DIR
 from .media import cache_key
 
-# 媒体库里列出的文档：微信读书能导入的格式（TXT 除外：课程文件夹里的 txt 一般是说明文件），加上 PPT。txt / md 用「打开」
-LIB_EXT = {'.pdf', '.docx', '.doc', '.epub', '.mobi', '.azw3', '.azw', '.pptx', '.ppt'}
-DOC_EXT = LIB_EXT | {'.txt', '.md'}
+# 媒体库里列出的文档：微信读书能导入的格式，加上 PPT。猛人灵修也列 txt / md（灵修老师的文章、对话记录常是这两种，
+# 要能选作蒸馏来源）；和音视频同名的 txt / md（导出的文字稿）不列，见 library._listdir。
+DOC_EXT = {'.pdf', '.docx', '.doc', '.epub', '.mobi', '.azw3', '.azw', '.pptx', '.ppt', '.txt', '.md'}
+LIB_EXT = DOC_EXT
+TEXT_EXT = {'.txt', '.md'}
 KIND_NAMES = {'pdf': 'PDF', 'docx': 'Word 文档', 'doc': 'Word 文档（老版 .doc）', 'epub': '电子书（EPUB）',
               'mobi': 'Kindle 电子书（MOBI / AZW3）', 'pptx': '演示文稿（PPTX）', 'ppt': '演示文稿（老版 .ppt）', 'text': '文本文档'}
 PART_PAGES = 18                       # 一次交给 AI 的最多页数
@@ -896,7 +898,7 @@ def clip_book(doc, info, vault, folder, dir_pattern='《{title}》{author}', for
     chapters = doc.get('chapters') or []
     clip = doc.get('clip') if isinstance(doc.get('clip'), dict) else {}
     prev = clip.get('files') if isinstance(clip.get('files'), dict) else {}
-    tag_lines = ['tags:', '  - 外部原始资料', '  - 书籍', '  - 猛人学习', f'  - {safe_name(title).replace(" ", "_")}']
+    tag_lines = ['tags:', '  - 外部原始资料', '  - 书籍', f'  - {APP_NAME}', f'  - {safe_name(title).replace(" ", "_")}']
     todo = []  # (文件名, 生成笔记的函数)
     for c, fname in zip(chapters, chapter_files(chapters)):
         if not (c.get('md') or '').strip():

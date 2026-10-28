@@ -1,6 +1,6 @@
 """媒体库：左侧列表（2026-10-14 改成树形，按实际层级显示）。只记路径和用户的设置，显示时读磁盘上的最新情况。
 
-library.json（%APPDATA%\\猛人学习）：
+library.json（%APPDATA%\\猛人灵修）：
 - folders：加进来的文件夹（最上层）[{path, name, teacher, collapsed, added}]；
 - files：单独加进来的文件 [路径]；
 - order：最上层的顺序 [路径]（文件夹和单个文件混在一起，默认按加入的先后，用户可以拖动）；
@@ -12,11 +12,13 @@ library.json（%APPDATA%\\猛人学习）：
 - 文件夹里同一层：带数字序号的（1、 01. 第3讲 三、…）按序号排在前面，没有序号的按下载（创建）时间排在后面；
 - 没有序号的可以拖到任意位置，软件记住；带序号的之间永远按序号（拖乱了界面会提示改名）；
 - 每一层文件夹都能绑定老师，没绑定的沿用最近一层上级的（folder_teacher）。
-- 每一层文件夹都能设「不写课程重点」（summary: 'off'；子文件夹可以设回 'on'；空着沿用上层，最上层默认写），
+- 每一层文件夹都能设「不写课程重点」（summary: 'off'；子文件夹可以设回 'on'；空着沿用上层，最上层默认 SUMMARY_DEFAULT：
+  猛人灵修默认不写，灵修课一般只识别、校对、蒸馏；要写的文件夹设成 'on'），
   灵修类这种逐字稿课程只识别、校对，直接蒸馏（2026-10-28 用户要求按文件夹选，不按老师；folder_no_summary）。
 - 每一层文件夹都能记一套整理规则 rule {steps, lang, doubao_model, doubao_account}：「整个文件夹排进后台整理」时定的，
   下层沿用；以后右键单节课「排进后台整理」也按它（folder_rule）。
-识别的文件：音视频（media.MEDIA_EXT）和文档（book.LIB_EXT）；字幕、txt、软件自己的 json 等不列。
+识别的文件：音视频（media.MEDIA_EXT）和文档（book.LIB_EXT，猛人灵修含 txt / md）；字幕、软件自己的 json、
+和音视频同名的 txt / md（导出的文字稿）不列。
 「_」或「.」开头的文件夹（例如「_关键帧缓存」）不列。"""
 import json
 import os
@@ -26,11 +28,12 @@ import time
 from pathlib import Path
 
 from . import config, doc as docs
-from .book import LIB_EXT
+from .book import LIB_EXT, TEXT_EXT
 from .log import log
 from .media import AUDIO_EXT, MEDIA_EXT
 
 MAX_FILES = 3000
+SUMMARY_DEFAULT = 'off'  # 最上层文件夹没设时写不写课程重点：猛人灵修默认不写（猛人学习是 'on'）
 SKIP_EXT = {'.json', '.bak', '.tmp', '.part', '.ini', '.db', '.lnk', '.srt', '.ass', '.vtt', '.lrc', '.txt', '.md'}  # 不提示「跳过了」的
 CN_DIGIT = {c: i for i, c in enumerate('零一二三四五六七八九')} | {'〇': 0}
 
@@ -141,7 +144,7 @@ def _status(path, positions, env=None):
         item['duration'] = d.get('duration') or 0
     if env is not None:
         from . import workflow  # workflow 也用 library，放这里免得互相引用
-        item['no_summary'] = _nearest(env['summary'], path) == 'off'
+        item['no_summary'] = (_nearest(env['summary'], path) or SUMMARY_DEFAULT) == 'off'
         item['pending'] = workflow.pending_in_scan(path, d, env['facts'], _nearest(env['binds'], path), item['no_summary'])
     pos = positions.get(os.path.abspath(path).lower())
     if pos:
@@ -161,11 +164,14 @@ def _listdir(path, stats=None):
     except OSError:
         return [], []
     pdf_stems = {Path(e.name).stem.lower() for e in entries if e.name.lower().endswith('.pdf')}
+    media_stems = {Path(e.name).stem.lower() for e in entries if Path(e.name).suffix.lower() in MEDIA_EXT}
+    media_stems |= {e.name.lower() for e in entries if Path(e.name).suffix.lower() in MEDIA_EXT}  # 「课.mp4.txt」这种
     dirs, files = [], []
     for e in entries:
         try:
             if e.is_dir():
-                if not e.name.startswith(('.', '_')):  # 「_关键帧缓存」这类辅助文件夹不列
+                # 「_关键帧缓存」这类辅助文件夹不列；Obsidian 库（里面有 .obsidian）也不列，不然库里的笔记都会当成文章列出来
+                if not e.name.startswith(('.', '_')) and not os.path.isdir(os.path.join(e.path, '.obsidian')):
                     dirs.append(e)
                 continue
             ctime = e.stat().st_ctime
@@ -174,6 +180,8 @@ def _listdir(path, stats=None):
         ext = Path(e.name).suffix.lower()
         if ext == '.docx' and Path(e.name).stem.lower() in pdf_stems:
             continue  # 和 PDF 同名的 Word 是它的正文参考，不单独列
+        if ext in TEXT_EXT and Path(e.name).stem.lower() in media_stems:
+            continue  # 和音视频同名的 txt / md 是导出的文字稿，不单独列
         if _wanted(e.name):
             files.append({'name': e.name, 'path': e.path, 'ctime': ctime})
         elif stats is not None and ext not in SKIP_EXT and not e.name.lower().endswith(docs.SUFFIX):
@@ -195,7 +203,7 @@ def _tree(path, lib, positions, budget, top=False, env=None, inherit=''):
     conf = _conf(lib, k)
     own = conf.get('summary') or ''
     node = {'type': 'folder', 'path': path, 'name': Path(path).name or path, 'top': top, 'teacher': conf.get('teacher') or '',
-            'collapsed': bool(conf.get('collapsed')), 'summary': own, 'no_summary': (own or inherit) == 'off',
+            'collapsed': bool(conf.get('collapsed')), 'summary': own, 'no_summary': (own or inherit or SUMMARY_DEFAULT) == 'off',
             'missing': not os.path.isdir(path), 'count': 0, 'children': []}
     if node['missing']:
         return node
@@ -376,7 +384,7 @@ def set_folder(path, **changes):
     k = _key(path)
     if 'no_summary' in changes:  # 和上层一样就不单独记（以后改上层，这里跟着变）
         want = 'off' if changes.pop('no_summary') else 'on'
-        changes['summary'] = '' if want == (_nearest(_summary_binds(lib), path) or 'on') else want
+        changes['summary'] = '' if want == (_nearest(_summary_binds(lib), path) or SUMMARY_DEFAULT) else want
     top = next((f for f in lib['folders'] if _key(f['path']) == k), None)
     if top is not None:
         for name in ('teacher', 'collapsed', 'name', 'summary', 'rule'):
@@ -444,7 +452,7 @@ def folder_teacher(media_path):
 
 def folder_no_summary(media_path):
     """视频所在文件夹（或最近一层设过的上级）设了「不写课程重点」。"""
-    return _nearest(_summary_binds(load()), media_path) == 'off'
+    return (_nearest(_summary_binds(load()), media_path) or SUMMARY_DEFAULT) == 'off'
 
 
 def folder_rule(media_path):
@@ -457,7 +465,7 @@ def folder_settings(folder):
     lib = load()
     conf = _conf(lib, _key(folder))
     at = lambda name: conf.get(name) or _nearest(_binds(lib, name), folder)  # noqa: E731
-    return {'teacher': at('teacher') or '', 'no_summary': at('summary') == 'off', 'rule': at('rule') or None}
+    return {'teacher': at('teacher') or '', 'no_summary': (at('summary') or SUMMARY_DEFAULT) == 'off', 'rule': at('rule') or None}
 
 
 def _nearest(binds, media_path):

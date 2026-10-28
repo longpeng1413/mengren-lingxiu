@@ -411,9 +411,13 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('回答里的出处变成可点的标签，观点库和课程里没有的标红，「AI 推测」单独一个框',
       ans.querySelectorAll('a.cite:not(.bad)').length === 2 && ans.querySelectorAll('a.cite.bad').length === 1
       && ans.querySelector('a.cite').dataset.t === '2' && !!ans.querySelector('.ai-guess') && !ans.querySelector('a.tslink'), ans.innerHTML);
+    const ans2 = document.createElement('div');
+    ans2.innerHTML = answerHTML('见［S01 第3段］和［S01-W1］。');
+    ok('文字资料的出处「第几段」、问答编号也认得（问答编号观点库里没有，标红）', ans2.querySelectorAll('a.cite').length === 2
+      && !ans2.querySelector('a.cite').classList.contains('bad') && ans2.querySelector('a.cite').dataset.p === '3' && ans2.querySelectorAll('a.cite.bad').length === 1, ans2.innerHTML);
     document.querySelector('#mentorMsgs [data-eg]').click();
     ok('点示例问题就提问；回答写完存进对话记录，列表里出现这个对话（标题是问题）', await until(() => !M.job && M.chat && M.chat.messages.length === 2
-      && M.chat.messages[1].role === 'assistant' && ((document.querySelector('#mentorList .mt-chat.active') || {}).textContent || '').includes('交易系统包括哪些方面'), 20000),
+      && M.chat.messages[1].role === 'assistant' && ((document.querySelector('#mentorList .mt-chat.active') || {}).textContent || '').includes('你最核心的教导是什么'), 20000),
       [String(M.chat), M.chat && M.chat.messages.length, M.seq, M.cur && M.cur.mentor.id, M.job, toasts().slice(-3), (document.querySelector('#mentorList') || {}).textContent]);
     document.querySelector('#mentorMsgs [data-save="1"]').click();
     ok('收藏到 Obsidian：按钮变成「已收藏」', await until(() => M.chat.messages[1].saved && document.querySelector('#mentorMsgs [data-save="1"]').disabled));
@@ -435,12 +439,13 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('蒸馏窗口：列出媒体库文件夹里的课', await until(() => document.querySelector('#dlgDistill').open && document.querySelectorAll('#dsList input').length > 0));
     document.querySelector('#dsName').value = '蒸馏测试老师';
     document.querySelector('#dsName').dispatchEvent(new Event('input'));
-    ok('蒸馏窗口：显示结果写到 Obsidian 的哪个文件夹', await until(() => document.querySelector('#dsTarget').textContent.includes('04、外部知识转化库\\01、老师分身蒸馏资料\\蒸馏测试老师')),
+    ok('蒸馏窗口：显示结果写到 Obsidian 的哪个文件夹', await until(() => document.querySelector('#dsTarget').textContent.includes('灵修老师\\蒸馏测试老师')),
       document.querySelector('#dsTarget').textContent);
     const dBoxes = [...document.querySelectorAll('#dsList input')];
     const dDemo = dBoxes.find(b => b.dataset.path.toLowerCase().endsWith('演示视频.mp4'));
-    ok('蒸馏窗口：有字幕的课默认勾上，书和文档不列出来', dDemo && dDemo.checked && !dDemo.disabled && !dBoxes.some(b => /\.(pdf|md)$/i.test(b.dataset.path)),
-      dBoxes.map(b => b.dataset.path));
+    const dPdf = dBoxes.find(b => /\.pdf$/i.test(b.dataset.path));
+    ok('蒸馏窗口：有字幕的课默认勾上，文章、书也能选（标「文字资料」）', dDemo && dDemo.checked && !dDemo.disabled && dPdf && !dPdf.disabled
+      && dPdf.closest('label').textContent.includes('文字资料'), dBoxes.map(b => b.dataset.path));
     dBoxes.forEach(b => { if (!b.disabled) b.checked = b === dDemo; });
     document.querySelector('#dsOk').click();
     ok('开始蒸馏：后台做完后提示「蒸馏好了」', await until(() => toasts().some(t => t.includes('「蒸馏测试老师」蒸馏好了')), 30000), toasts().slice(-3));
@@ -450,7 +455,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       && !document.querySelector('#mentorList').textContent.includes('未蒸馏完') && document.querySelector('#mentorDistill').hidden, 10000),
       [M.cur && M.cur.files, document.querySelector('#mentorList').textContent]);
     const dFiles = M.cur.files;
-    ok('蒸馏完：三份文件写进「04、外部知识转化库/蒸馏测试老师」', ['atoms', 'distill', 'persona'].every(k => (dFiles[k] || '').includes('蒸馏测试老师')), dFiles);
+    ok('蒸馏完：三份文件写进「灵修老师/蒸馏测试老师」', ['atoms', 'distill', 'persona'].every(k => (dFiles[k] || '').includes('蒸馏测试老师')), dFiles);
     document.querySelector('#mentorMsgs [data-eg]').click();
     await until(() => !M.job && M.chat && M.chat.messages.length === 2, 20000);
     await mentorAsk('第二个问题');
@@ -623,7 +628,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     showSection('about');
     ok('设置：导入导出和存放位置', !!document.querySelector('#btnExportSettings') && await until(() => document.querySelector('#aboutRoot').textContent.length > 3));
     ok('设置：课程重点模板', document.querySelector('#summaryTemplate').value.includes('不要套用固定栏目'));
-    ok('关于：开源地址已改名', document.querySelector('#aboutHome').textContent.includes('mengren-learning'));
+    ok('关于：开源地址已改名', document.querySelector('#aboutHome').textContent.includes('mengren-lingxiu'));
     ok('关于：点 × 时收到右下角，默认打开，可以关掉', document.querySelector('[data-k="close_to_tray"]').checked === true);
     document.querySelector('#dlgSettings').close();
 
@@ -687,29 +692,32 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     await window.openPath(base + '演示视频.mp4');
     ok('再次打开从上次进度继续', await until(() => Math.abs(v.currentTime - 21.3) < 0.6, 5000), v.currentTime);
 
-    // 文件夹菜单「这里的课不写课程重点」（2026-10-28，灵修类逐字稿课程直接蒸馏）
+    // 文件夹菜单「这里的课不写课程重点」：猛人灵修默认不写（灵修课只识别、校对，直接蒸馏老师），可以按文件夹改成写
     const nsTop = S.lib.find(n => n.type === 'folder' && insideDir(S.path, n.path));
-    ok('打开的课在媒体库文件夹里，刚打开时照常写课程重点', !!nsTop && S.noSummary === false, S.path);
-    folderMenu(nsTop.path, 20, 20);
-    ok('文件夹菜单有「这里的课不写课程重点」', !!document.querySelector('#ctxMenu [data-a=nosum]') && !document.querySelector('#ctxMenu [data-a=nosum]').textContent.includes('✓'));
-    document.querySelector('#ctxMenu [data-a=nosum]').click();
-    ok('设了不写课程重点：文件夹名旁边标「不写重点」，正开着的课跟着知道', await until(() => S.noSummary === true && (libNode(nsTop.path) || {}).no_summary)
-      && document.querySelector(`.lib-ghead[data-folder="${CSS.escape(nsTop.path)}"]`).textContent.includes('不写重点'));
+    ok('打开的课在媒体库文件夹里，猛人灵修默认不写课程重点', !!nsTop && S.noSummary === true, S.path);
     openPipeline();
-    ok('设了不写课程重点：一键整理默认不勾「生成课程重点」，旁边写明原因', !document.querySelector('#plSummary').checked
-      && document.querySelector('#plSummaryText').textContent.includes('设了不写'));
+    ok('默认不写：一键整理默认不勾「生成课程重点」和「找关键帧」，旁边写明原因', !document.querySelector('#plSummary').checked
+      && document.querySelector('#plSummaryText').textContent.includes('不写课程重点') && !document.querySelector('#plFrames').checked);
     document.querySelector('#dlgPipeline').close();
-    ok('重新打开这节课：后台也说是不写课程重点', (await api('open', { path: S.path })).no_summary === true);
     folderMenu(nsTop.path, 20, 20);
-    ok('菜单里显示已经打开（✓）', document.querySelector('#ctxMenu [data-a=nosum]').textContent.includes('✓'));
+    ok('文件夹菜单有「这里的课不写课程重点」，默认打着 ✓', !!document.querySelector('#ctxMenu [data-a=nosum]') && document.querySelector('#ctxMenu [data-a=nosum]').textContent.includes('✓'));
     document.querySelector('#ctxMenu [data-a=nosum]').click();
-    ok('再点一次改回要写', await until(() => S.noSummary === false && !(libNode(nsTop.path) || {}).no_summary));
+    ok('改成要写：文件夹名旁边标「写重点」，正开着的课跟着知道', await until(() => S.noSummary === false && !(libNode(nsTop.path) || {}).no_summary)
+      && document.querySelector(`.lib-ghead[data-folder="${CSS.escape(nsTop.path)}"]`).textContent.includes('写重点'));
+    openPipeline();
+    ok('要写的文件夹：一键整理默认勾「生成课程重点」', document.querySelector('#plSummary').checked);
+    document.querySelector('#dlgPipeline').close();
+    ok('重新打开这节课：后台也说要写课程重点', (await api('open', { path: S.path })).no_summary === false);
+    folderMenu(nsTop.path, 20, 20);
+    ok('菜单里不再打 ✓', !document.querySelector('#ctxMenu [data-a=nosum]').textContent.includes('✓'));
+    document.querySelector('#ctxMenu [data-a=nosum]').click();
+    ok('再点一次改回不写', await until(() => S.noSummary === true && (libNode(nsTop.path) || {}).no_summary));
     // 整个文件夹排进后台整理（2026-10-28）
     folderMenu(nsTop.path, 20, 20);
     document.querySelector('#ctxMenu [data-a=bgall]').click();
-    ok('文件夹菜单「整个文件夹排进后台整理…」：弹出规则对话框，写明里面有几节课，默认步骤勾上', await until(() => document.querySelector('#dlgFolderBg').open)
+    ok('文件夹菜单「整个文件夹排进后台整理…」：弹出规则对话框，写明里面有几节课，默认步骤勾上（猛人灵修不勾课程重点、找关键帧）', await until(() => document.querySelector('#dlgFolderBg').open)
       && /有 \d+ 节音视频/.test(document.querySelector('#fbInfo').textContent) && document.querySelector('#fbAsr').checked
-      && document.querySelector('#fbSummary').checked && document.querySelector('#fbTeacher').options.length > 1, document.querySelector('#fbInfo').textContent);
+      && !document.querySelector('#fbSummary').checked && !document.querySelector('#fbFrames').checked && document.querySelector('#fbTeacher').options.length > 1, document.querySelector('#fbInfo').textContent);
     ['fbFrames', 'fbSummary', 'fbTranslate'].forEach(id => { document.getElementById(id).checked = false; });
     // 真的排队会整理后面测试要用的课：截下发给后台的请求（后台排队在 test_agent.py 里测）
     const realApi = window.api;
@@ -726,9 +734,9 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('再打开：带出上次定的规则', await until(() => document.querySelector('#dlgFolderBg').open) && document.querySelector('#fbInfo').textContent.includes('上次定的规则')
       && document.querySelector('#fbTranslate').checked && !document.querySelector('#fbAsr').checked && !document.querySelector('#fbSummary').checked);
     document.querySelector('#dlgFolderBg').close();
-    await api('library_set', { path: nsTop.path, rule: null, no_summary: false });
+    await api('library_set', { path: nsTop.path, rule: null, no_summary: true });
     await loadLibrary();
-    ok('还原文件夹设置', !(libNode(nsTop.path) || {}).no_summary && !(await api('folder_rule', { path: nsTop.path })).rule);
+    ok('还原文件夹设置', (libNode(nsTop.path) || {}).no_summary && !(await api('folder_rule', { path: nsTop.path })).rule);
     const bgSaved2 = S.bg;
     S.bg = Array.from({ length: 30 }, (_, i) => ({ id: 'q' + i, path: `D:\\课\\${i}.mp4`, title: '课' + i, status: i ? 'waiting' : 'running', progress: 0 }));
     bgMenu(20, 20);

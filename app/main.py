@@ -1,4 +1,4 @@
-"""猛人学习：在独立窗口里打开界面。界面直接调用 bridge.Api，不开网络端口。
+"""猛人灵修：在独立窗口里打开界面。界面直接调用 bridge.Api，不开网络端口。
 python app/main.py [--debug]   （--debug 打开开发者工具，日志记得更详细）"""
 import json
 import os
@@ -19,14 +19,14 @@ from webview.dom import _dnd_state  # noqa: E402
 
 from bridge import Api  # noqa: E402
 
-VERSION = '1.8.10'
+VERSION = '1.0.0'
 
 
 _instance = None  # 保持互斥锁的句柄，进程退出时自动释放
 
 
 def single_instance() -> bool:
-    """同一份数据（%APPDATA%\\猛人学习）只允许开一个窗口。已经开着时切到那个窗口并返回 False。
+    """同一份数据（%APPDATA%\\猛人灵修）只允许开一个窗口。已经开着时切到那个窗口并返回 False。
     刚关掉又马上打开时，旧进程可能还没退完，最多等 5 秒。"""
     global _instance
     if os.name != 'nt' or '--selftest' in ' '.join(sys.argv):
@@ -37,14 +37,14 @@ def single_instance() -> bool:
     k32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_wchar_p]
     k32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
     k32.WaitForSingleObject.restype = ctypes.c_uint32
-    name = 'Local\\MengrenLearning-' + _data_key()
+    name = 'Local\\MengrenLingxiu-' + _data_key()
     _instance = k32.CreateMutexW(None, False, name)
     if not _instance:
         return True
     if k32.WaitForSingleObject(_instance, 5000) in (0, 0x80):  # 拿到了（或上一个进程异常退出留下的）
         return True
     if not bring_front():
-        u32.MessageBoxW(None, '猛人学习已经打开了。', config.APP_NAME, 0x40)
+        u32.MessageBoxW(None, '猛人灵修已经打开了。', config.APP_NAME, 0x40)
     return False
 
 
@@ -54,18 +54,18 @@ def _data_key() -> str:
 
 
 def quit_event(create: bool):
-    """「请退出」信号：运行 猛人学习.exe --quit 时，让正在运行的猛人学习保存后退出（点 × 只会收到托盘）。"""
+    """「请退出」信号：运行 猛人灵修.exe --quit 时，让正在运行的猛人灵修保存后退出（点 × 只会收到托盘）。"""
     import ctypes
     k32 = ctypes.windll.kernel32
     k32.CreateEventW.restype = k32.OpenEventW.restype = ctypes.c_void_p
     k32.CreateEventW.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_bool, ctypes.c_wchar_p]
     k32.OpenEventW.argtypes = [ctypes.c_uint32, ctypes.c_bool, ctypes.c_wchar_p]
-    name = 'Local\\MengrenLearningQuit-' + _data_key()
+    name = 'Local\\MengrenLingxiuQuit-' + _data_key()
     return k32.CreateEventW(None, True, False, name) if create else k32.OpenEventW(0x0002, False, name)  # EVENT_MODIFY_STATE
 
 
 def request_quit() -> bool:
-    """通知正在运行的猛人学习退出。没有在运行返回 False。"""
+    """通知正在运行的猛人灵修退出。没有在运行返回 False。"""
     import ctypes
     h = quit_event(False)
     if not h:
@@ -75,7 +75,7 @@ def request_quit() -> bool:
 
 
 def bring_front() -> bool:
-    """把猛人学习的窗口显示到最前面（收在托盘里、最小化的也行）。找不到窗口返回 False。"""
+    """把猛人灵修的窗口显示到最前面（收在托盘里、最小化的也行）。找不到窗口返回 False。"""
     if os.name != 'nt':
         return False
     import ctypes
@@ -111,9 +111,9 @@ def log_data_files():
 
 def main():
     if '--quit' in sys.argv:  # 升级前用：让正在运行的那个保存后退出
-        log.info('收到 --quit：%s', '已通知正在运行的猛人学习退出' if os.name == 'nt' and request_quit() else '猛人学习没有在运行')
+        log.info('收到 --quit：%s', '已通知正在运行的猛人灵修退出' if os.name == 'nt' and request_quit() else '猛人灵修没有在运行')
         return
-    log.info('==== 猛人学习 %s 启动（%s）====', VERSION, 'exe' if getattr(sys, 'frozen', False) else '源码')
+    log.info('==== 猛人灵修 %s 启动（%s）====', VERSION, 'exe' if getattr(sys, 'frozen', False) else '源码')
     from core import appdata
     selftest = '--selftest' in ' '.join(sys.argv)
     # 由其他打包应用（例如 Claude 桌面版）打开时，写设置会被 Windows 转存到那个应用的私有文件夹，
@@ -121,7 +121,7 @@ def main():
     if not selftest and appdata.is_virtualized() and appdata.relaunch_outside():
         return
     if not single_instance():
-        log.info('已经有一个猛人学习开着，切到那个窗口后退出')
+        log.info('已经有一个猛人灵修开着，切到那个窗口后退出')
         return
     if not selftest and not appdata.is_virtualized():
         appdata.adopt_virtual()  # 以前被转存走的设置、媒体库搬回来
@@ -134,6 +134,11 @@ def main():
     api = Api()
     from core import portable
     api._bundled = portable.import_bundled(api)  # 解压即用：软件文件夹里附带的设置，第一次启动时自动导入
+    if not api._bundled and not selftest:
+        try:
+            api._sibling = config.import_from_sibling()  # 第一次打开：从猛人学习带过来 AI 登录和豆包密钥
+        except Exception:  # noqa: BLE001  带不过来就算了，用户自己在设置里填
+            log.warning('从猛人学习带过来设置失败', exc_info=True)
     try:
         s = config.load()
     except config.DataError as e:  # 设置文件读不出来：说明原因后退出，不带着空设置继续用（一保存就会冲掉真数据）
@@ -222,7 +227,7 @@ def main():
                 import ctypes
                 h = quit_event(True)
                 if h and ctypes.windll.kernel32.WaitForSingleObject(ctypes.c_void_p(h), 0xFFFFFFFF) == 0:
-                    log.info('收到「请退出」信号（猛人学习.exe --quit）')
+                    log.info('收到「请退出」信号（猛人灵修.exe --quit）')
                     on_closing(force=True)
             threading.Thread(target=wait_quit, daemon=True, name='quit-signal').start()
 

@@ -373,6 +373,8 @@ def why_skip(name, d, f, force=False):
         if name == 'frames':
             if (d.get('frames') or 'frames' in st or old) and not force:
                 return '已经挑过插图'
+            if not force and not f.settings.get('auto_frames') and 'frames' not in (f.opts.get('asked') or ()):
+                return NO_FRAMES
         else:
             if ('recheck' in st or old) and not force:
                 return '已经复核过'
@@ -423,6 +425,7 @@ def why_skip(name, d, f, force=False):
 
 
 NO_DOUBTS = '没有存疑句'
+NO_FRAMES = '猛人灵修默认不找关键帧（灵修课一般不用插图；要找：界面上勾选「找关键帧」，或设置里打开「自动找关键帧」，或 --steps frames）'
 NO_SUMMARY = '媒体库里这个文件夹设了「不写课程重点」（要写：界面上勾选，或 --steps summary --force）'
 
 
@@ -477,8 +480,16 @@ def scan_facts():
     return {'settings': s, 'teachers': {t['id']: t for t in config.load_teachers()}, 'vision': _vision_check(s)}
 
 
+def plain_text(path, d):
+    """txt / md 文字资料（文章、对话记录），没有当成书整理过：猛人灵修拿它直接蒸馏老师，不算「没整理完」。
+    （要当书整理照样可以：打开后点「整理章节」，整理过的就按书算。）"""
+    return Path(path).suffix.lower() in book.TEXT_EXT and not (d and d.get('kind') == 'book')
+
+
 def pending_in_scan(path, d, env, folder_teacher='', no_summary=False):
     """媒体库列表用：这节课（或这本书）还要做哪几步。d 是已经读出来的字幕文件（没有就是 None），不再读任何文件。"""
+    if plain_text(path, d):
+        return []
     kind = kind_of(path)
     tid = (d or {}).get('teacher') or folder_teacher
     f = Facts(env['settings'], teacher=env['teachers'].get(tid) if tid else None, has_video=kind != 'audio', vision=env['vision'],
@@ -500,12 +511,16 @@ def facts_for(path, d, settings=None, opts=None, probe=True):
 def todo_for(path, steps=None, opts=None):
     """「整个文件夹排进后台整理」用：按 steps（不给就是一键整理默认的）这节课还要做哪几步。不探测视频、不读书，几百节也快。"""
     d = docs.load(path) or {}
+    if plain_text(path, d):
+        return []
     kind = 'book' if kind_of(path) == 'book' else 'video'
     return pending_steps(d, kind, facts_for(path, d, opts=opts, probe=False), stages_for(path, steps))[0]
 
 
 def pending_now(path, d):
     """界面打开、重新读取一节课时：还差哪几步（媒体库的「未整理完」跟着更新）。"""
+    if plain_text(path, d):
+        return []
     kind = 'book' if kind_of(path) == 'book' else 'video'
     return pending_steps(d, kind, facts_for(path, d, probe=False))[0]
 
@@ -1009,7 +1024,7 @@ def process(target, steps=None, skip=None, redo=(), lang=None, provider=None, mo
     except WorkError as e:
         return _failed_lookup(target, e)
     forced = tuple(x for x in (redo or ()) if x in stages)
-    opts = {'steps': stages, 'redo': list(forced), 'lang': lang, 'provider': provider,
+    opts = {'steps': stages, 'asked': list(steps or []), 'redo': list(forced), 'lang': lang, 'provider': provider,
             'model': model or 'cloud', 'caller': caller, **{k: v for k, v in more.items() if v}}
     task = tasks.Task(kind, path, video_id(path), Path(path).stem, dict(opts), stages, LABELS)
     if cancel is not None:

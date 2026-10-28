@@ -25,6 +25,7 @@ class Api:
         self._quit = threading.Event()
         self._version = ''
         self._bundled = None
+        self._sibling = []  # 第一次打开时从猛人学习带过来的设置项
 
     # pywebview 会把 Api 的公开方法暴露给界面；统一从 call 进来，出错时返回 {'ok': False, 'error': …}
     def call(self, name, body=None):
@@ -272,16 +273,16 @@ class Api:
         return {'mentors': mentor.list_mentors()}
 
     def do_mentor_pick(self, b):
-        """弹出选择文件夹的窗口（从「04、外部知识转化库/01、老师分身蒸馏资料」开始）。选好以后界面先显示「正在查找课程笔记…」，再调 mentor_add。"""
+        """弹出选择文件夹的窗口（从 Obsidian 库的「灵修老师」开始）。选好以后界面先显示「正在查找课程笔记…」，再调 mentor_add。"""
         import webview
         vault = (config.load().get('obsidian') or {}).get('vault') or ''
-        tries = [os.path.join(vault, distill.KB_DIR, distill.MENTOR_SUB), os.path.join(vault, distill.KB_DIR)] if vault else []
+        tries = [os.path.join(vault, distill.MENTOR_ROOT)] if vault else []
         start = next((p for p in tries if os.path.isdir(p)), vault)
         r = self._window.create_file_dialog(webview.FileDialog.FOLDER, directory=start or '')
         return {'folder': r[0] if r else ''}
 
     def do_mentor_add(self, b):
-        """导入一个蒸馏好的老师文件夹（04、外部知识转化库/01、老师分身蒸馏资料/老师名）。没给路径就弹出选择文件夹的窗口。"""
+        """导入一个蒸馏好的老师文件夹（灵修老师/老师名）。没给路径就弹出选择文件夹的窗口。"""
         folder = b.get('folder')
         if not folder:
             folder = self.do_mentor_pick(b)['folder']
@@ -375,7 +376,7 @@ class Api:
         return mentor.favorites(b.get('id'))
 
     def do_mentor_quote(self, b):
-        return mentor.quote(b.get('id'), str(b.get('sid') or ''), float(b.get('t') or 0))
+        return mentor.quote(b.get('id'), str(b.get('sid') or ''), float(b.get('t') or 0), b.get('p'))
 
     # ------------------------------------------------- 老师蒸馏（distill.py） ----
     @staticmethod
@@ -798,7 +799,8 @@ class Api:
     def do_about(self, b):
         s = config.load()
         bundled, self._bundled = self._bundled, None  # 只提示一次
-        return {'version': self._version, 'bundled': bool(bundled), 'log_dir': str(LOG_DIR), 'data_dir': str(config.DATA_DIR),
+        sibling, self._sibling = self._sibling, []
+        return {'version': self._version, 'bundled': bool(bundled), 'sibling': sibling, 'log_dir': str(LOG_DIR), 'data_dir': str(config.DATA_DIR),
                 'cache_dir': str(config.CACHE_DIR), 'storage_root': str(config.STORAGE_ROOT),
                 'storage_custom': s.get('storage_dir') or '', 'storage_default': str(config.default_storage_root()), **cache.info()}
 
@@ -827,7 +829,7 @@ class Api:
     def do_export_settings(self, b):
         import json as _json
         import webview
-        r = b.get('dest') or self._window.create_file_dialog(webview.FileDialog.SAVE, save_filename='猛人学习设置.json', file_types=('设置文件 (*.json)',))
+        r = b.get('dest') or self._window.create_file_dialog(webview.FileDialog.SAVE, save_filename='猛人灵修设置.json', file_types=('设置文件 (*.json)',))
         if not r:
             return {'path': None}
         dest = r if isinstance(r, str) else r[0]
@@ -863,9 +865,9 @@ class Api:
         try:
             data = _json.loads(Path(r[0]).read_text(encoding='utf-8-sig'))
         except (OSError, ValueError):
-            raise ValueError('读不出这个文件，请选择从猛人学习导出的设置文件')
-        if not isinstance(data, dict) or data.get('app') not in (config.APP_NAME, config.OLD_APP_NAME) or not isinstance(data.get('settings'), dict):
-            raise ValueError('这不是猛人学习导出的设置文件')
+            raise ValueError('读不出这个文件，请选择从猛人灵修或猛人学习导出的设置文件')
+        if not isinstance(data, dict) or data.get('app') not in (config.APP_NAME, config.SIBLING_NAME, config.OLD_APP_NAME) or not isinstance(data.get('settings'), dict):
+            raise ValueError('这不是猛人灵修或猛人学习导出的设置文件')
         cur = config.load()
         new = config._merge(config.DEFAULTS, data['settings'])
         new['storage_dir'] = cur.get('storage_dir', '')  # 位置跟电脑有关，保留这台电脑的

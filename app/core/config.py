@@ -1,5 +1,8 @@
 """设置与目录。
-- 设置、老师档案、媒体库、播放进度（都很小）：%APPDATA%\\猛人学习\\（1.6 以前叫「猛人字幕」，第一次启动时自动搬过来）
+- 设置、老师档案、媒体库、播放进度（都很小）：%APPDATA%\猛人灵修\。和猛人学习的数据完全分开，
+  第一次打开时只从猛人学习带过来 AI 登录、豆包密钥和服务选择（import_from_sibling）。
+- 和猛人学习共用的：字幕文件（视频旁边的「视频名.猛人学习.json」），以及防止两个软件同时写同一份字幕的
+  写锁、「正在整理」标记、写不进视频旁边时的备用位置，都在 %APPDATA%\猛人学习\（SHARED_DIR）。
 - 缓存和日志（会变大，可以随时删除）：默认放在软件所在文件夹，
   「缓存（可随时删除）」和「日志（可随时删除）」；也可以在设置里换到别的位置（重启后生效）。"""
 import copy
@@ -13,27 +16,14 @@ import time
 import uuid
 from pathlib import Path
 
-APP_NAME = '猛人学习'
-OLD_APP_NAME = '猛人字幕'  # 1.6 以前的名字
+APP_NAME = '猛人灵修'
+SIBLING_NAME = '猛人学习'   # 从它复制出来的软件：共用字幕文件和锁目录，第一次打开时带过来 AI 登录
+OLD_APP_NAME = '猛人字幕'   # 猛人学习 1.6 以前的名字（只用来认旧的字幕文件、旧的缓存位置，绝不从那里搬数据）
 _APPDATA = Path(os.environ.get('APPDATA') or Path.home())
 DATA_DIR = _APPDATA / APP_NAME
-OLD_DATA_DIR = _APPDATA / OLD_APP_NAME
+SHARED_DIR = _APPDATA / SIBLING_NAME
+SIBLING_SETTINGS = SHARED_DIR / 'settings.json'
 
-
-def _migrate_data_dir():
-    """改名后第一次启动：把旧名字下的设置、老师档案、媒体库、播放进度整个搬过来。"""
-    if DATA_DIR.exists() or not OLD_DATA_DIR.is_dir():
-        return
-    try:
-        os.replace(OLD_DATA_DIR, DATA_DIR)
-    except OSError:
-        try:
-            shutil.copytree(OLD_DATA_DIR, DATA_DIR)
-        except OSError:
-            pass
-
-
-_migrate_data_dir()
 SETTINGS_FILE = DATA_DIR / 'settings.json'
 POSITIONS_FILE = DATA_DIR / 'positions.json'
 TEACHERS_FILE = DATA_DIR / 'teachers.json'
@@ -41,7 +31,7 @@ LIBRARY_FILE = DATA_DIR / 'library.json'
 CACHE_NAME = '缓存（可随时删除）'
 LOG_NAME = '日志（可随时删除）'
 # 旧版本放在 C 盘的位置（启动时会清掉）
-OLD_CACHE_DIR = Path(os.environ.get('LOCALAPPDATA') or Path.home()) / OLD_APP_NAME / 'cache'
+OLD_CACHE_DIR = Path(os.environ.get('LOCALAPPDATA') or Path.home()) / APP_NAME / 'cache'  # 软件目录不能写时的旧位置
 OLD_LOG_DIR = DATA_DIR / 'logs'
 OLD_WEBVIEW_DIR = DATA_DIR / 'webview'
 
@@ -119,8 +109,9 @@ DEFAULTS = {
     'vision': 'codex',
     'summary_template': '',
     'auto_correct': True,
+    'imported_from': '',  # 第一次打开时从猛人学习带过来设置的时间（import_from_sibling）
     'theme': 'dark',
-    'accent': '#e8b04a',
+    'accent': '#3cc8c0',  # 青绿（和图标一样，和猛人学习的金色分开）
     'font_size': 17,
     'line_height': 1.6,
     'cue_gap': 9,
@@ -144,10 +135,11 @@ DEFAULTS = {
     'last_lang': 'zh',
     'last_teacher': '',
     'storage_dir': '',
-    'obsidian': {'vault': '', 'folder': '猛人学习', 'teacher_subfolder': True, 'name_pattern': '{title}',
-                 'book_folder': '猛人学习/书籍', 'book_dir_pattern': '《{title}》{author}'},
+    'obsidian': {'vault': '', 'folder': '灵修课程', 'teacher_subfolder': True, 'name_pattern': '{title}',
+                 'book_folder': '灵修课程/书籍', 'book_dir_pattern': '《{title}》{author}'},
     'book_rules_file': '',
     'auto_review': True,
+    'auto_frames': False,  # 一键整理、后台整理默认找不找关键帧（插图）：灵修课一般不用，默认不找，勾选了照样找
     'close_to_tray': True,  # 点右上角 × 时收到右下角托盘，不退出
     'recent': [],
 }
@@ -201,7 +193,7 @@ def _read_json(path, default):
         return json.loads(bak.read_text(encoding='utf-8'))
     except (OSError, ValueError):
         pass
-    raise DataError(f'读不出「{path.name}」（{err}）。请关闭其他打开的猛人学习后重试；数据没有丢，每日备份在 {SNAPSHOT_DIR}')
+    raise DataError(f'读不出「{path.name}」（{err}）。请关闭其他打开的猛人灵修后重试；数据没有丢，每日备份在 {SNAPSHOT_DIR}')
 
 
 def _snapshot(path: Path):
@@ -257,6 +249,31 @@ def save(settings: dict) -> None:
                     for kk, vv in v.items():
                         out[k].setdefault(kk, vv)
         _write_json(SETTINGS_FILE, out)
+
+
+# 第一次打开时从猛人学习带过来的设置：只要 AI 登录、密钥、代理和「哪件事用哪家 AI」，
+# 不带媒体库、老师、术语表、Obsidian 位置、播放进度（那些是猛人学习自己的）。
+SIBLING_KEYS = ('providers', 'proxy', 'asr_en', 'asr_zh', 'translate', 'correct', 'chat', 'vision')
+
+
+def import_from_sibling() -> list:
+    """这台电脑还没有猛人灵修的设置、但有猛人学习的设置时，复制上面这几项。返回带过来的项；读不到就跳过。"""
+    if SETTINGS_FILE.exists() or (SETTINGS_FILE.with_name(SETTINGS_FILE.name + '.bak')).exists():
+        return []
+    try:
+        src = json.loads(SIBLING_SETTINGS.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(src, dict):
+        return []
+    picked = {k: copy.deepcopy(src[k]) for k in SIBLING_KEYS if k in src}
+    if not picked:
+        return []
+    picked['imported_from'] = time.strftime('%Y-%m-%d %H:%M:%S')
+    with _lock:
+        _write_json(SETTINGS_FILE, picked)
+    _log.info('第一次打开：从猛人学习带过来 %s', '、'.join(k for k in picked if k != 'imported_from'))
+    return [k for k in picked if k != 'imported_from']
 
 
 def mask(key: str) -> str:

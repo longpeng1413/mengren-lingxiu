@@ -51,24 +51,26 @@ def remove_old_locations() -> int:
 
 
 def clean_marks(days=1) -> int:
-    """%APPDATA%\\猛人学习\\locks 和 tasks 里留下的小文件：
-    - 每节课保存时用的锁文件（0 字节，一节课一个）：一天没用、也没有程序占着的删掉，下次保存会重新建；
-    - 「正在整理」标记：整理它的程序已经不在了的删掉；
+    """锁文件夹（和猛人学习共用的 %APPDATA%\\猛人学习\\locks）和 tasks 里留下的小文件：
+    - 每节课保存时用的锁文件（0 字节，一节课一个）：一天没用、也没有程序占着的删掉，下次保存会重新建
+      （两个软件谁删都一样：正被占着的删不掉，删掉的下次保存会重新建）；
+    - 「正在整理」标记：只删猛人灵修自己写的（标记里 app 是猛人灵修）、而且整理它的程序已经不在了的，
+      猛人学习的标记留给猛人学习自己清；
     - 任务记录写到一半留下的临时文件。
     任务记录本身最多留 300 条（tasks.py）。返回删了几个。"""
     from . import tasks
-    from .config import DATA_DIR
+    from .config import APP_NAME, DATA_DIR, SHARED_DIR
     now, n = time.time(), 0
-    for f in list((DATA_DIR / 'locks').glob('*.lock')) + list((DATA_DIR / 'tasks').glob('*.tmp')):
+    for f in list((SHARED_DIR / 'locks').glob('*.lock')) + list((DATA_DIR / 'tasks').glob('*.tmp')):
         try:
             if now - f.stat().st_mtime > days * 86400:
                 f.unlink()  # 别的程序正开着它时删不掉，跳过
                 n += 1
         except OSError:
             pass
-    for f in (DATA_DIR / 'locks').glob('*.busy'):
+    for f in (SHARED_DIR / 'locks').glob('*.busy'):
         try:
-            if tasks.busy(f.stem) is None:
+            if (tasks._read(f) or {}).get('app') == APP_NAME and tasks.busy(f.stem) is None:
                 f.unlink()
                 n += 1
         except OSError:

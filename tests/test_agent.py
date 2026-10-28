@@ -24,8 +24,8 @@ if not (ROOT / 'test-media' / '演示视频.mp4').exists():
     subprocess.run([sys.executable, str(ROOT / 'tests' / 'make_test_media.py')], check=True)
 if not (ROOT / 'test-media' / '测试书籍.pdf').exists():
     subprocess.run([sys.executable, str(ROOT / 'tests' / 'make_test_book.py')], check=True)
-(TMP / 'appdata' / '猛人学习').mkdir(parents=True)
-(TMP / 'appdata' / '猛人学习' / 'settings.json').write_text(json.dumps({'storage_dir': str(TMP / 'store')}), encoding='utf-8')
+(TMP / 'appdata' / '猛人灵修').mkdir(parents=True)
+(TMP / 'appdata' / '猛人灵修' / 'settings.json').write_text(json.dumps({'storage_dir': str(TMP / 'store')}), encoding='utf-8')
 sys.path.insert(0, str(ROOT / 'app'))
 
 import cli  # noqa: E402
@@ -33,6 +33,10 @@ from bridge import Api  # noqa: E402
 from core import asr, book, config, doc as docs, frames, library, llm, tasks, workflow as wf  # noqa: E402
 
 passed = 0
+# 下面先测一键整理的整套流程（找关键帧、写课程重点都做，也就是猛人学习的默认）；猛人灵修自己的默认值（不找关键帧、
+# 不写课程重点）在后面「猛人灵修的默认值」单独测
+config.update({'auto_frames': True})
+library.SUMMARY_DEFAULT = 'on'
 
 
 def check(name, cond, detail=''):
@@ -563,7 +567,7 @@ old_lock = tasks.BUSY_DIR / 'oldlesson.lock'
 old_lock.write_bytes(b'')
 os.utime(old_lock, (time.time() - 3 * 86400, time.time() - 3 * 86400))
 dead_busy = tasks.BUSY_DIR / 'deadlesson.busy'
-dead_busy.write_text(json.dumps({'task_id': 'x', 'pid': 999999, 'since': 'x'}), encoding='utf-8')
+dead_busy.write_text(json.dumps({'task_id': 'x', 'pid': 999999, 'since': 'x', 'app': config.APP_NAME}), encoding='utf-8')  # 只清自己写的标记
 fresh_lock = tasks.BUSY_DIR / 'fresh.lock'
 fresh_lock.write_bytes(b'')
 with docs.write_lock(L1):  # 正被占着的锁文件删不掉，跳过
@@ -739,13 +743,30 @@ code, text, _ = run_cli('find', '第一课')
 check('命令行：不加 --json 输出中文', code == 0 and '第一课' in text and '已整理' in text)
 check('转存检测：C 盘路径换成 \\\\localhost\\C$', cli.unc_of(r'C:\Users\x\AppData\Roaming') == r'\\localhost\C$\Users\x\AppData\Roaming')
 
+# 猛人灵修的默认值：不写课程重点、不找关键帧，都不算没整理完；明确要的时候照样做
+library.SUMMARY_DEFAULT = 'off'
+config.update({'auto_frames': False})
+L9 = lesson('9、第九课.mp4')
+d9 = docs.new(L9, {'duration': 9})
+d9.update(segments=[{'start': 0.0, 'end': 2.0, 'text': '大家好', 'tr': ''}], corrected=True, teacher=teacher['id'])
+docs.save(L9, d9)
+sk9 = wf.info(L9)['skipped_steps']
+check('猛人灵修默认：不找关键帧、不写课程重点，不算没整理完', item_of(L9)['pending_steps'] == ['terms']
+      and sk9.get('frames') == wf.NO_FRAMES and sk9.get('summary') == wf.NO_SUMMARY, (item_of(L9), sk9))
+c9 = calls.copy()
+wf.process(L9, steps=['frames'])
+check('猛人灵修默认：明确要「找关键帧」（一键整理勾上、文件夹规则里勾上）时照样找', calls['frames'] == c9['frames'] + 1, calls - c9)
+library.set_folder(str(COURSE / '1、基础'), no_summary=False)
+check('猛人灵修默认：文件夹单独设成「写课程重点」后，课程重点算没做', 'summary' in item_of(L9)['pending_steps'] and library.load()['dirs'], item_of(L9))
+library.set_folder(str(COURSE / '1、基础'), no_summary=True)
+
 # 真的起一个进程（不用假的 AI，只查找）
 env = dict(os.environ)
 r = subprocess.run([sys.executable, str(ROOT / 'app' / 'cli.py'), 'list', '--kind', 'book', '--json'], capture_output=True, env=env, timeout=120)
 outp = json.loads(r.stdout.decode('utf-8'))
 check('命令行进程：退出码 0、stdout 是 UTF-8 的 JSON', r.returncode == 0 and outp['count'] == 2 and '《测试书籍》测试作者' in [x['name'] for x in outp['items']])
-r = subprocess.run(['cmd', '/c', str(ROOT / 'mengren.cmd'), 'steps', '--json'], capture_output=True, env=env, timeout=120)
-check('mengren.cmd 能直接调用', r.returncode == 0 and json.loads(r.stdout.decode('utf-8'))['success'], r.stderr.decode('utf-8', 'replace')[-300:])
+r = subprocess.run(['cmd', '/c', str(ROOT / 'lingxiu.cmd'), 'steps', '--json'], capture_output=True, env=env, timeout=120)
+check('lingxiu.cmd 能直接调用', r.returncode == 0 and json.loads(r.stdout.decode('utf-8'))['success'], r.stderr.decode('utf-8', 'replace')[-300:])
 
 # ------------------------------------------------------------ 收尾 ----
 r = subprocess.run([sys.executable, '-m', 'pyflakes', str(ROOT / 'app' / 'cli.py'), str(ROOT / 'app' / 'core' / 'workflow.py'),

@@ -1,9 +1,9 @@
 """打发布用的压缩包（放在 release\\ 里）：
-    .venv\\Scripts\\python release.py                      # 用 dist\\猛人学习 打两个包
+    .venv\\Scripts\\python release.py                      # 用 dist\\猛人灵修 打包
     .venv\\Scripts\\python release.py --src dist-next      # 用 dist-next 里刚打包好的
     .venv\\Scripts\\python release.py --personal 设置.json --out 桌面\\xx.zip   # 再打一个带个人设置的包（含密钥，别上传）
 
-- mengren-learning-版本-windows-with-ffmpeg.zip：附带 ffmpeg，解压就能用（发布只用这一个包）；
+- mengren-lingxiu-版本-windows-with-ffmpeg.zip：附带 ffmpeg，解压就能用（发布只用这一个包）；
 - 个人包：附带 ffmpeg 和导出的设置（软件第一次启动时自动导入）。
 软件文件夹里的「缓存」「日志」不打进去。"""
 import argparse
@@ -16,12 +16,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 SKIP = ('缓存（可随时删除）', '日志（可随时删除）')
+APP = '猛人灵修'
 
-README = """猛人学习 {ver}
+README = """猛人灵修 {ver}（灵修、心灵成长老师的课程整理和蒸馏）
 
 【怎么用】
-1. 把整个「猛人学习」文件夹放到任意位置（不要放在 C:\\Program Files 这类需要管理员权限的地方）。
-2. 双击「猛人学习.exe」。可以在桌面建一个快捷方式（右键 猛人学习.exe → 发送到 → 桌面快捷方式）。
+1. 把整个「猛人灵修」文件夹放到任意位置（不要放在 C:\\Program Files 这类需要管理员权限的地方）。
+2. 双击「猛人灵修.exe」。可以在桌面建一个快捷方式（右键 猛人灵修.exe → 发送到 → 桌面快捷方式）。
 3. 第一次使用：点右上角的「？」看使用说明；点齿轮打开「设置」填写 AI 服务（或用 ChatGPT 账号登录）。
 {ffmpeg}{personal}
 【需要】Windows 10 / 11（64 位）。Windows 10 打不开时，先安装微软的 WebView2 运行时：
@@ -29,11 +30,11 @@ https://developer.microsoft.com/microsoft-edge/webview2/
 程序没有数字签名，第一次打开时 Windows 或安全软件可能会提示，选择「仍要运行」或加入信任即可。
 
 【数据放在哪里】
-设置、密钥、老师档案、媒体库：%APPDATA%\\猛人学习\\
-字幕和整理结果：视频 / 文档旁边的「文件名.猛人学习.json」
+设置、密钥、老师档案、媒体库：%APPDATA%\\猛人灵修\\（和猛人学习分开）
+字幕和整理结果：视频 / 文档旁边的「文件名.猛人学习.json」（和猛人学习共用同一份，两个软件都能打开）
 缓存和日志：软件文件夹里的「缓存（可随时删除）」「日志（可随时删除）」
 
-开源地址：https://github.com/longpeng1413/mengren-learning
+开源地址：https://github.com/longpeng1413/mengren-lingxiu
 """
 
 FFMPEG_NOTE = """
@@ -42,7 +43,7 @@ ffmpeg 是独立的开源软件，按 GPL v3 许可分发，许可证和源码�
 """
 
 PERSONAL_NOTE = """
-【个人设置】软件文件夹里的「猛人学习设置.json」包含你的 AI 密钥和 ChatGPT 登录。
+【个人设置】软件文件夹里的「猛人灵修设置.json」包含你的 AI 密钥和 ChatGPT 登录。
 第一次启动时会自动导入，导入后它会改名为「…（已导入，可删除）」，请删掉它。这个压缩包不要发给别人。
 """
 
@@ -79,13 +80,13 @@ def make_zip(src: Path, dest: Path, ver, with_ffmpeg=False, settings: Path = Non
                 continue
             for f in files:
                 full = Path(root) / f
-                z.write(full, Path('猛人学习') / full.relative_to(src))
+                z.write(full, Path(APP) / full.relative_to(src))
         if with_ffmpeg:
             for name, p in ffmpeg_files().items():
-                z.write(p, Path('猛人学习') / 'ffmpeg' / name)
+                z.write(p, Path(APP) / 'ffmpeg' / name)
         if settings:
-            z.write(settings, Path('猛人学习') / '猛人学习设置.json')
-        z.writestr(str(Path('猛人学习') / '使用前请看.txt'),
+            z.write(settings, Path(APP) / '猛人灵修设置.json')
+        z.writestr(str(Path(APP) / '使用前请看.txt'),
                    README.format(ver=ver, ffmpeg=FFMPEG_NOTE if with_ffmpeg else
                                  '\n【ffmpeg】需要另外安装：在「终端」里运行 winget install Gyan.FFmpeg\n',
                                  personal=PERSONAL_NOTE if settings else '').replace('\n', '\r\n').encode('utf-8-sig'))
@@ -100,19 +101,19 @@ def main():
     ap.add_argument('--personal', help='导出的设置文件（含密钥），打一个个人用的包')
     ap.add_argument('--out', help='个人包放在哪里')
     a = ap.parse_args()
-    src = ROOT / a.src / '猛人学习'
-    if not (src / '猛人学习.exe').is_file():
-        sys.exit(f'找不到 {src}\\猛人学习.exe，请先打包（python build.py）')
+    src = ROOT / a.src / APP
+    if not (src / f'{APP}.exe').is_file():
+        sys.exit(f'找不到 {src}\\{APP}.exe，请先打包（python build.py）')
     ver = version()
     if a.personal:
-        out = Path(a.out) if a.out else ROOT / 'release' / f'猛人学习-{ver}-个人版（含密钥，勿外传）.zip'
+        out = Path(a.out) if a.out else ROOT / 'release' / f'{APP}-{ver}-个人版（含密钥，勿外传）.zip'
         make_zip(src, out, ver, with_ffmpeg=True, settings=Path(a.personal))
         return
     rel = ROOT / 'release'
-    for old in rel.glob('mengren-learning-*.zip'):
+    for old in rel.glob('mengren-lingxiu-*.zip'):
         old.unlink()
     # 用户 2026-10 要求：发布包一律附带 ffmpeg，别人下载解压就能用（不再单独发不带 ffmpeg 的包）
-    make_zip(src, rel / f'mengren-learning-{ver}-windows-with-ffmpeg.zip', ver, with_ffmpeg=True)
+    make_zip(src, rel / f'mengren-lingxiu-{ver}-windows-with-ffmpeg.zip', ver, with_ffmpeg=True)
 
 
 if __name__ == '__main__':

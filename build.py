@@ -1,4 +1,4 @@
-"""打包成 exe：生成 dist-next\\猛人学习\\猛人学习.exe，再双击「更新到新版.bat」换进 dist。"""
+"""打包成 exe：生成 dist-next\\猛人灵修\\猛人灵修.exe，再双击「更新到新版.bat」换进 dist。"""
 import subprocess
 import sys
 from pathlib import Path
@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parent
 DIST = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('--dist=')), 'dist-next')
 args = [
     sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', '--windowed',
-    '--name', '猛人学习',
+    '--name', '猛人灵修',
     '--icon', str(ROOT / 'app' / 'assets' / 'icon.ico'),
     '--paths', str(ROOT / 'app'),
     '--add-data', f'{ROOT / "app" / "web"};web',
@@ -21,5 +21,5 @@ args = [
     str(ROOT / 'app' / 'main.py'),
 ]
 code = subprocess.call(args, cwd=ROOT)
-print(f'\n打包完成：{DIST}\\猛人学习\\猛人学习.exe' if code == 0 else '\n打包失败（如果提示「拒绝访问」，请先关闭正在运行的猛人学习）')
+print(f'\n打包完成：{DIST}\\猛人灵修\\猛人灵修.exe' if code == 0 else '\n打包失败（如果提示「拒绝访问」，请先关闭正在运行的猛人灵修）')
 sys.exit(code)

@@ -1,7 +1,7 @@
 /* 圆桌讨论和主题蒸馏（2026-10-24）。后台在 app/core/roundtable.py，规则见知识库《AI知识蒸馏规范》V2.0 第六节。
    - 左栏老师下面两组：「圆桌讨论」「主题蒸馏」，点组名新建；右键条目改名、删除、重新蒸馏。
    - 圆桌讨论：每位老师各自回答（边写边显示，出处按是哪位老师说的来认，点了跳到他那节课那一秒）→ 自动总结；
-     「让老师们互相回应」再来一轮；「收藏到 Obsidian」整场存进「02、主题蒸馏资料」的一个主题文件夹。
+     「让老师们互相回应」再来一轮；「收藏到 Obsidian」整场存进 Obsidian 库「灵修主题」的一个主题文件夹。
    - 主题蒸馏：后台每位老师整理一次再合并，写进 Obsidian；软件里也能看，出处 ［老师名 S02-21］ 可点。
    - 「提示词」按钮：显示软件实际交给 AI 的提示词。
    和 mentor.js 共用对话区：R.mode 不为空时，mentor.js 的 renderMentorHead / renderMentorMsgs / mentorAsk 交给这里。 */
@@ -95,8 +95,8 @@ function openMulti(kind, preset = {}) {
   const dlg = $('#dlgMulti');
   $('#mlTitle').textContent = topic ? (preset.id ? `重新蒸馏「${preset.topic}」` : '新建主题蒸馏') : '新建圆桌讨论';
   $('#mlInfo').textContent = topic
-    ? 'AI 从每位老师的观点库里找出和这个主题相关的内容，比较他们分别怎么说（共识、分歧和原因、条件和边界），写进 Obsidian「04、外部知识转化库/02、主题蒸馏资料」。写书时参考。'
-    : '就一个问题请几位老师一起讨论：每位老师只用自己的课程各自回答，然后 AI 总结共识和分歧；还可以让老师们互相回应。';
+    ? 'AI 从每位老师的观点库里找出和这个主题相关的内容（观点、修法、原话、比喻和故事、问答），比较他们分别怎么说（共识、分歧和原因、前提和适用的人），写进 Obsidian 库的「灵修主题」。'
+    : '就一个问题请几位老师一起讨论：每位老师只用自己的资料各自回答，然后 AI 总结共识和分歧；还可以让老师们互相回应。';
   $$('.topic-only', dlg).forEach(el => { el.hidden = !topic; });
   $('#mlTopic').value = preset.topic || '';
   $('#mlNote').value = preset.note || '';
@@ -193,10 +193,10 @@ function renderRoundMsgs() {
   const box = $('#mentorMsgs'), c = R.round;
   if (!c.messages.length) {
     const names = c.people.map(p => p.name).join('、');
-    const egs = ['交易系统应该包括哪些部分？', '单笔风险应该怎么定？', '连续亏损的时候该怎么办？'];
+    const egs = ['怎样才算真正的放下？', '痛苦的时候该怎么面对？', '修行和日常生活怎么结合？'];
     box.innerHTML = `<div class="mentor-intro"><h3>圆桌讨论：${esc(names)}</h3>
-      <p>提一个问题，几位老师各自<b>只用自己的课程</b>回答（出处可点，跳到那位老师那节课那一秒），然后 AI 总结共识、分歧和各自的条件。还可以点上方「让老师们互相回应」，每位老师看了别人的回答再回应一轮。</p>
-      <p>觉得有价值的讨论点「★ 收藏到 Obsidian」，整场存进「02、主题蒸馏资料」，写书时参考。</p>
+      <p>提一个问题，几位老师各自<b>只用自己的资料</b>回答（出处可点，跳到那位老师那节课那一秒，或显示那段原文），然后 AI 总结共识、分歧和各自的前提。还可以点上方「让老师们互相回应」，每位老师看了别人的回答再回应一轮。</p>
+      <p>觉得有价值的讨论点「★ 收藏到 Obsidian」，整场存进 Obsidian 库的「灵修主题」。</p>
       <p>可以这样问：</p>${egs.map(q => `<button class="btn small ask-eg" data-reg="${esc(q)}">${esc(q)}</button>`).join('')}</div>`;
     return;
   }
@@ -237,7 +237,7 @@ async function followRound(jobId) {
           box.insertAdjacentHTML('beforeend', roundMsgHTML({ role: it.role, name: it.name, mid: it.who, round: it.round, content: '' }, -1));
           const el = box.lastElementChild, b = el.querySelector('.bubble');
           b.classList.add('typing');
-          b.textContent = it.role === 'summary' ? 'AI 正在总结…' : `${it.name}正在翻课程资料…`;
+          b.textContent = it.role === 'summary' ? 'AI 正在总结…' : `${it.name}正在翻资料…`;
           live[it.who] = { el, text: '' };
         } else if ((it.kind === 'text' || it.kind === 'reset') && live[it.who]) {
           const l = live[it.who], b = l.el.querySelector('.bubble');
@@ -268,7 +268,7 @@ $('#rtSummary').onclick = () => roundAction('round_summary');
 $('#rtSave').onclick = e => {
   e.stopPropagation();  // 不然窗口的 click 会马上关掉刚打开的菜单
   const c = R.round, rc = e.currentTarget.getBoundingClientRect();
-  showCtx(rc.left, rc.bottom + 4, '<div class="menu-label">存进「02、主题蒸馏资料」的哪个主题文件夹</div>'
+  showCtx(rc.left, rc.bottom + 4, '<div class="menu-label">存进「灵修主题」的哪个主题文件夹</div>'
     + R.folders.map(f => `<button class="menu-item" data-f="${esc(f)}">${esc(f)}${c.saved && c.saved.folder === f ? '（已经存在这里，更新）' : ''}</button>`).join(''), m => {
     $$('[data-f]', m).forEach(b => {
       b.onclick = async () => {
@@ -276,7 +276,7 @@ $('#rtSave').onclick = e => {
         try {
           const s = await api('round_save', { cid: c.id, folder: b.dataset.f });
           R.round = s.chat; renderRoundHead(); refreshRounds();
-          favToast(`已存进 Obsidian：02、主题蒸馏资料/${b.dataset.f}`, { uri: s.uri, file: s.file, exists: true });
+          favToast(`已存进 Obsidian：灵修主题/${b.dataset.f}`, { uri: s.uri, file: s.file, exists: true });
         } catch (err) { fail(err); }
       };
     });

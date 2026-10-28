@@ -18,8 +18,14 @@ os.environ['LOCALAPPDATA'] = str(TMP / 'local')
 ROOT = Path(__file__).resolve().parents[1]
 if not (ROOT / 'test-media' / '旧格式.avi').exists():  # 测试视频不放进仓库，用 ffmpeg 生成
     subprocess.run([sys.executable, str(ROOT / 'tests' / 'make_test_media.py')], check=True)
-(TMP / 'appdata' / '猛人字幕').mkdir(parents=True)  # 故意用改名前的位置，测试自动搬家
-(TMP / 'appdata' / '猛人字幕' / 'settings.json').write_text(json.dumps({'storage_dir': str(TMP / 'store')}), encoding='utf-8')
+(TMP / 'appdata' / '猛人灵修').mkdir(parents=True)
+(TMP / 'appdata' / '猛人灵修' / 'settings.json').write_text(json.dumps({'storage_dir': str(TMP / 'store')}), encoding='utf-8')
+(TMP / 'appdata' / '猛人字幕').mkdir(parents=True)  # 猛人学习改名前的数据：猛人灵修绝不能搬它
+(TMP / 'appdata' / '猛人字幕' / 'settings.json').write_text('{"theme": "猛人字幕的"}', encoding='utf-8')
+(TMP / 'appdata' / '猛人学习').mkdir(parents=True)  # 猛人学习的设置：第一次打开时只带过来 AI 登录和服务选择
+(TMP / 'appdata' / '猛人学习' / 'settings.json').write_text(json.dumps({
+    'providers': {'codex': {'oauth': {'refresh': 'r-test', 'email': 'a@b.c'}}, 'doubao': {'key': 'doubao-test-key', 'more_keys': [{'id': 'x1', 'name': '二号', 'key': 'k2'}]}},
+    'proxy': 'http://127.0.0.1:7890', 'chat': 'codex', 'asr_zh': 'doubao', 'obsidian': {'vault': 'D:\\交易库'}, 'last_teacher': 't1', 'recent': [{'path': 'x'}]}), encoding='utf-8')
 sys.path.insert(0, str(ROOT / 'app'))
 
 from bridge import Api  # noqa: E402
@@ -63,9 +69,38 @@ def wait(job_id, timeout=120):
     raise TimeoutError(job_id)
 
 
-# 改名：设置文件夹自动从 %APPDATA%\\猛人字幕 搬到 %APPDATA%\\猛人学习
-check('改名后设置自动搬家', config.DATA_DIR.name == '猛人学习' and config.DATA_DIR.exists() and not (TMP / 'appdata' / '猛人字幕').exists()
-      and config.load()['storage_dir'] == str(TMP / 'store'))
+# 数据分开：猛人灵修的数据在 %APPDATA%\\猛人灵修，绝不从猛人字幕、猛人学习搬数据
+check('数据在自己的文件夹，猛人字幕、猛人学习的数据一点不动', config.DATA_DIR.name == '猛人灵修' and config.load()['storage_dir'] == str(TMP / 'store')
+      and (TMP / 'appdata' / '猛人字幕' / 'settings.json').read_text(encoding='utf-8') == '{"theme": "猛人字幕的"}'
+      and config.SHARED_DIR == TMP / 'appdata' / '猛人学习')
+# 和猛人学习共用：字幕写锁、「正在整理」标记都在 %APPDATA%\\猛人学习\\locks，两个软件不会同时写同一份字幕
+from core import cache as _cache, tasks as _tasks  # noqa: E402
+with docs.write_lock(str(MEDIA / '演示视频.mp4')):
+    _lk = list((config.SHARED_DIR / 'locks').glob('*.lock'))
+_tasks.claim('k-mine', 't-1')
+_bz = json.loads((config.SHARED_DIR / 'locks' / 'k-mine.busy').read_text(encoding='utf-8'))
+check('字幕写锁、「正在整理」标记放在和猛人学习共用的文件夹，标记写着是哪个软件', len(_lk) == 1 and _bz['app'] == '猛人灵修'
+      and _tasks.busy('k-mine')['task_id'] == 't-1' and not (config.DATA_DIR / 'locks').exists(), (_lk, _bz))
+_tasks.release('k-mine', 't-1')
+for _k, _app in (('k-dead-mine', '猛人灵修'), ('k-dead-theirs', '猛人学习'), ('k-dead-old', None)):
+    (config.SHARED_DIR / 'locks' / f'{_k}.busy').write_text(json.dumps({'task_id': 'x', 'pid': 4194300, 'since': '', **({'app': _app} if _app else {})}), encoding='utf-8')
+_cache.clean_marks()
+check('清理「正在整理」标记：只清猛人灵修自己留下的，猛人学习的留给它自己清', not (config.SHARED_DIR / 'locks' / 'k-dead-mine.busy').exists()
+      and (config.SHARED_DIR / 'locks' / 'k-dead-theirs.busy').exists() and (config.SHARED_DIR / 'locks' / 'k-dead-old.busy').exists())
+check('已经有自己的设置时，不从猛人学习带东西', config.import_from_sibling() == [] and 'imported_from' not in json.loads(config.SETTINGS_FILE.read_text(encoding='utf-8')))
+_real_sf = config.SETTINGS_FILE
+config.SETTINGS_FILE = TMP / 'first-run' / 'settings.json'
+config.SETTINGS_FILE.parent.mkdir()
+_got = config.import_from_sibling()
+_first = json.loads(config.SETTINGS_FILE.read_text(encoding='utf-8'))
+_loaded = config.load()
+check('第一次打开：从猛人学习只带过来 AI 登录、豆包密钥、代理和服务选择，不带媒体库、老师、Obsidian、最近打开',
+      sorted(_got) == ['asr_zh', 'chat', 'providers', 'proxy'] and _loaded['providers']['codex']['oauth']['refresh'] == 'r-test'
+      and _loaded['providers']['doubao']['key'] == 'doubao-test-key' and _loaded['providers']['doubao']['more_keys'][0]['key'] == 'k2'
+      and _loaded['proxy'] == 'http://127.0.0.1:7890' and _loaded['chat'] == 'codex'
+      and 'obsidian' not in _first and 'last_teacher' not in _first and 'recent' not in _first and _loaded['obsidian']['vault'] == '', _first)
+check('猛人学习的设置文件没被改', 'doubao-test-key' in (config.SHARED_DIR / 'settings.json').read_text(encoding='utf-8'))
+config.SETTINGS_FILE = _real_sf
 
 # 打开已有字幕的 mp4：直接播放，读回字幕
 r = api.call('open', {'path': str(MEDIA / '演示视频.mp4')})
@@ -352,7 +387,7 @@ check('剪藏的课程重点里有这两条要点', '- 要点 [00:05]\n' in tx a
 tx = tx.replace('- 要点 [00:05]\n', '- 要点 [00:05]\n\n> [!note] 我的理解\n> 先看要点\n\n', 1)
 tx = tx.replace('- 再一个 [00:20]', '- 再一个 [00:20]\n> [!tip] 这一条后来会被删掉', 1)
 tx = tx.replace('## 完整字幕', '## 我的笔记\n\n链接到 [[峰级线]]\n\n## 完整字幕', 1)
-tx = tx.replace('\ntags:\n', '\n相关课程: "[[第3课]]"\ntags:\n', 1).replace('  - 猛人学习\n', '  - 猛人学习\n  - 我的标签\n', 1)
+tx = tx.replace('\ntags:\n', '\n相关课程: "[[第3课]]"\ntags:\n', 1).replace('  - 猛人灵修\n', '  - 猛人灵修\n  - 我的标签\n', 1)
 tx = tx.rstrip() + '\n\n## 画面记录\n\n以前版本写的画面记录\n'
 nt.write_text(tx, encoding='utf-8')
 cl4 = dict(cl, clip=st, summary='## 一、开头\n- 要点 [00:05]\n- 新的一条 [00:10]')
@@ -363,7 +398,7 @@ check('重新剪藏：课程重点更新了', '- 新的一条 [00:10]' in t1 and
 check('重新剪藏：写在要点下面的标注跟着那条要点', t1.index('- 要点 [00:05]') < t1.index('> [!note] 我的理解') < t1.index('- 新的一条 [00:10]') and '> 先看要点' in t1, t1[:1200])
 check('重新剪藏：原来那条要点没了，标注挪到这一节最后，不丢', '> [!tip] 这一条后来会被删掉' in t1 and t1.index('> [!tip]') < t1.index('## 我的笔记') and m1['moved'] == 1, t1[:1500])
 check('重新剪藏：自己加的小节原样保留在原来的位置', '## 我的笔记\n\n链接到 [[峰级线]]' in t1 and t1.index('## 课程重点') < t1.index('## 我的笔记') < t1.index('## 完整字幕'))
-check('重新剪藏：自己加的属性和标签保留', '相关课程: "[[第3课]]"' in t1 and '  - 我的标签' in t1 and t1.count('  - 猛人学习') == 1)
+check('重新剪藏：自己加的属性和标签保留', '相关课程: "[[第3课]]"' in t1 and '  - 我的标签' in t1 and t1.count('  - 猛人灵修') == 1)
 check('重新剪藏：以前版本写的画面记录去掉', '## 画面记录' not in t1)
 st2 = {'path': m1['path'], 'time': m1['time'], 'hash': m1['hash'], 'file_hash': m1['file_hash']}
 nt.write_text(t1.replace('- 新的一条 [00:10]', '- 新的一条（我在 Obsidian 里改的）[00:10]'), encoding='utf-8')
@@ -482,12 +517,14 @@ from core import glossary  # noqa: E402
 base = '---\ntitle: 术语表\n---\n\n# 一、峰\n\n正确写法：\n\n> **峰**\n\n# 二、级\n\n正确写法：\n\n> **级**\n'
 m1, nt, ne = glossary.merge_markdown(base, [{'term': '棍态', 't': 60, 'quote': '这叫棍态'}],
                                      [{'wrong': '风机线', 'right': '峰级线', 't': 313, 'quote': '风机线'}], '4、基本功-峰级分析')
-check('写进术语表：原来的内容一个字不动，末尾加「逐课补充」一节', m1.startswith(base.rstrip('\n')) and '# 三、逐课补充（猛人学习）' in m1 and nt == 1 and ne == 1, m1[-500:])
+check('写进术语表：原来的内容一个字不动，末尾加「逐课补充」一节', m1.startswith(base.rstrip('\n')) and '# 三、逐课补充（猛人灵修）' in m1 and nt == 1 and ne == 1, m1[-500:])
 check('写进术语表：表格行带出处', '| 棍态 | 《4、基本功-峰级分析》[01:00] | 这叫棍态 |' in m1 and '| 风机线 | 峰级线 | 《4、基本功-峰级分析》[05:13] |' in m1, m1[-500:])
 m2, nt2, ne2 = glossary.merge_markdown(m1, [{'term': '棍态', 't': 1}, {'term': '夹棍', 't': 2}],
                                        [{'wrong': '风级线', 'right': '峰级线', 't': 5}, {'wrong': '风机线', 'right': '峰级线', 't': 6}], '5、下一课')
 check('再加一课：重复的不加，同一个正确写法的错写并进一行', nt2 == 1 and ne2 == 1 and m2.count('| 棍态 |') == 1 and '| 风机线、风级线 | 峰级线 |' in m2
-      and m2.count('逐课补充（猛人学习）') == 1 and '《5、下一课》[00:05]' in m2, m2[-600:])
+      and m2.count('逐课补充（猛人灵修）') == 1 and '《5、下一课》[00:05]' in m2, m2[-600:])
+m_old = glossary.merge_markdown(m1.replace('逐课补充（猛人灵修）', '逐课补充（猛人学习）'), [{'term': '新棍', 't': 7}], [], '6、再一课')[0]
+check('关联的是猛人学习建的术语表：接着写它原来的「逐课补充（猛人学习）」，不另起一节', m_old.count('逐课补充') == 1 and '| 新棍 | 《6、再一课》' in m_old, m_old[-400:])
 m3 = glossary.merge_markdown(base.replace('\n', '\r\n'), [{'term': '棍态', 't': 1}], [], 'x')[0]
 check('写进术语表：保留原来的换行格式', '\r\n' in m3 and '\n' not in m3.replace('\r\n', ''))
 tm2 = llm.terms_from_markdown(m2)
@@ -656,7 +693,7 @@ t3 = ch1.read_text(encoding='utf-8')
 check('书籍：只加了自己的东西，重新剪藏不弹窗', not bc3.get('conflict'), bc3)
 check('书籍：自己加的小节留在原来的位置', t3.index('## 一、本章主题') < t3.index('## 我的笔记') < t3.index('## 二、') and '这一章对照 [[峰级线]] 看' in t3, t3[:1500])
 check('书籍：标注跟着那一行', t3.index(first) < t3.index('> [!note] 我的理解') < t3.index('## 我的笔记'), t3[:1500])
-check('书籍：自己加的属性和标签保留', '关联课程: "[[第4课]]"' in t3 and '  - 我的标签' not in t3 and '  - 我的书单' in t3 and t3.count('  - 猛人学习') == 1)
+check('书籍：自己加的属性和标签保留', '关联课程: "[[第4课]]"' in t3 and '  - 我的标签' not in t3 and '  - 我的书单' in t3 and t3.count('  - 猛人灵修') == 1)
 check('书籍：之前保留的状态还在', '状态: "已确认-资料"' in t3)
 bdoc['clip'] = {'dir': bc3['dir'], 'time': bc3['time'], 'files': bc3['records']}
 md0 = bdoc['chapters'][0]['md']
@@ -695,7 +732,7 @@ check('回页面核对：改正正文、记进 OCR 修正、清掉已确认的',
 shutil.copy(pdfp, BOOKS / '_关键帧缓存' / '视觉资料.pdf')
 lb = api.call('library_add_folder', {'path': str(BOOKS)})
 names = [i['name'] for i in lb['groups'][-1]['children']]
-check('媒体库列出 PDF 和 Word、不列「_」开头的辅助文件夹', '《测试书籍》测试作者' in names and '讲义' in names and '视觉资料' not in names and '文章' not in names, names)
+check('媒体库列出 PDF、Word 和文章（猛人灵修也列 txt / md）、不列「_」开头的辅助文件夹', '《测试书籍》测试作者' in names and '讲义' in names and '视觉资料' not in names and '文章' in names, names)
 bi = next(i for i in lb['groups'][-1]['children'] if i['name'] == '《测试书籍》测试作者')
 check('媒体库显示整理进度', bi.get('book') == {'done': 1, 'total': 2}, bi)
 api.call('library_remove', {'kind': 'folder', 'path': str(BOOKS)})
@@ -764,21 +801,21 @@ check('导入设置', imp['imported'] and s_['providers']['deepseek']['key'] == 
 api.call('import_settings', {'path': str(TMP / 'exp2.json')})
 check('导入不带密钥的文件时保留已有密钥', config.load()['providers']['deepseek']['key'] == 'sk-export-test-123456')
 (TMP / 'bad.json').write_text('{"a": 1}', encoding='utf-8')
-check('拒绝不是猛人学习的文件', '不是猛人学习导出的设置文件' in api.call('import_settings', {'path': str(TMP / 'bad.json')})['error'])
+check('拒绝不是猛人灵修、猛人学习导出的文件', '不是猛人灵修或猛人学习导出的设置文件' in api.call('import_settings', {'path': str(TMP / 'bad.json')})['error'])
 
 # 解压即用：软件文件夹里附带的设置，第一次启动时自动导入
 from core import portable  # noqa: E402
 bundle = TMP / '软件文件夹'
 bundle.mkdir()
-shutil.copy(TMP / 'exp.json', bundle / '猛人学习设置.json')
-check('这台电脑已有设置时不自动导入', portable.import_bundled(api, bundle) is None and (bundle / '猛人学习设置.json').exists())
+shutil.copy(TMP / 'exp.json', bundle / '猛人灵修设置.json')
+check('这台电脑已有设置时不自动导入', portable.import_bundled(api, bundle) is None and (bundle / '猛人灵修设置.json').exists())
 config.SETTINGS_FILE.unlink()
 for t_ in config.load_teachers():
     config.delete_teacher(t_['id'])
 rb = portable.import_bundled(api, bundle)
 check('新电脑第一次启动：自动导入附带的设置', rb and rb['imported'] and config.load()['providers']['deepseek']['key'] == 'sk-export-test-123456'
       and config.load_teachers()[0]['name'] == '导出测试老师', rb)
-check('导入后设置文件改名，提醒删除', not (bundle / '猛人学习设置.json').exists() and (bundle / '猛人学习设置（已导入，可删除）.json').exists())
+check('导入后设置文件改名，提醒删除', not (bundle / '猛人灵修设置.json').exists() and (bundle / '猛人灵修设置（已导入，可删除）.json').exists())
 
 # AI 校对：改动和存疑通过任务推给界面（1.6.1 曾因为变量写错，一校对就报错）
 orig_check, orig_complete2 = llm.check, llm.complete
@@ -1091,8 +1128,9 @@ check('读出观点库每一条（编号、出处时间），老师自述也算'
       and 'S01-A1' in ov['atoms'], ov['atoms'])
 msgs, used = mentor.build_messages(mentor.get(mt['id']), [], '峰级线怎么画')
 sysmsg = msgs[0]['content']
-check('交给 AI 的资料：老师画像 + 观点库 + 相关的课程原文 + 出处规则', '# 测试老师画像' in sysmsg and '[S01-01]' in sysmsg
-      and '# 和这个问题相关的课程原文' in sysmsg and '只能引用上面给出的编号和时间' in sysmsg and msgs[-1]['content'] == '峰级线怎么画'
+check('交给 AI 的资料：老师画像 + 观点库 + 相关的原文 + 出处规则（灵修版：像老师那样回应、痛苦时建议找专业帮助、照实说是 AI）', '# 测试老师画像' in sysmsg and '[S01-01]' in sysmsg
+      and '# 和这个问题相关的原文' in sysmsg and '只能引用上面给出的编号、时间和段落' in sysmsg and '心理援助' in sysmsg and '不是他本人' in sysmsg
+      and '买卖建议' not in sysmsg and msgs[-1]['content'] == '峰级线怎么画'
       and used['atoms'] == 3, used)
 check('挑相关的：字词重合多的排前面', mentor.rank('止损设在哪', [{'t': '峰级线的画法'}, {'t': '止损要设在结构外面'}], lambda x: x['t'], 1)[0]['t'] == '止损要设在结构外面')
 check('出处那一秒前后的原话（鼠标停在出处上显示）', mentor.quote(mt['id'], 'S01', 2)['text'].startswith('[00:'))
@@ -1167,34 +1205,44 @@ check('蒸馏：没有字幕的课不能选', '还没有字幕' in e_ or '不在
 _old_stream, _old_check = _llm.stream, _llm.check
 _llm.stream, _llm.check = fake_ai.stream, (lambda *a, **k: None)
 dm = api.call('distill_create', {'name': '蒸馏老师', 'paths': [str(DS / '第一课.mp4')]})['mentor']
-DT = KB / '04、外部知识转化库' / '01、老师分身蒸馏资料' / '蒸馏老师'
-check('蒸馏：新建老师只记下用哪些课，结果写到「04、外部知识转化库/01、老师分身蒸馏资料/老师名」', dm['folder'] == str(DT) and dm.get('distilled')
+DT = KB / '灵修老师' / '蒸馏老师'
+check('蒸馏：新建老师只记下用哪些课，结果写到 Obsidian 库的「灵修老师/老师名」', dm['folder'] == str(DT) and dm.get('distilled')
       and [x['state'] for x in distill.status(dm['id'])['lessons']] == ['todo'])
 res = distill.run(dm['id'], jobs.Job('distill'))
 A = (DT / '01、观点库（逐节提取）.md').read_text(encoding='utf-8')
 P = (DT / '03、老师画像（对话用）.md').read_text(encoding='utf-8')
 D = (DT / '02、课程蒸馏.md').read_text(encoding='utf-8')
-check('蒸馏：观点库和人间落叶的格式一样（程序编号、出处带课程编号、说得很满标 ⚠️、自述 A1、存疑）',
-      '| S01 | 第一课 | （还没剪藏到 Obsidian：第一课.mp4） |' in A and '| S01-01 | 风险要先算好（假 AI）。 | — | S01 00:02–00:05 | 观点 |' in A
-      and '| S01-02 | 「截断亏损」。 | 未讲明 | S01 00:10 | 方法 ⚠️ |' in A and '| S01-A1 | 我是假老师。 | S01 00:01 |' in A
-      and '- 先算风险（S01-01）' in A and '- S01 00:08 假 AI 标的存疑' in A, A[:1500])
+check('蒸馏：灵修版观点库（程序编号、出处带课程编号、类型是观点 / 修法 / 定义、说得很满标 ⚠️、原话 Y、比喻和故事 B、问答 W、自述 A、存疑）',
+      '| S01 | 第一课 | （还没剪藏到 Obsidian：第一课.mp4） |' in A and '| S01-01 | 先看见自己的情绪（假 AI）。 | — | S01 00:02–00:05 | 观点 |' in A
+      and '| S01-02 | 「每天静坐十分钟」。 | 未讲明 | S01 00:10 | 修法 ⚠️ |' in A and '| S01-A1 | 我是假老师。 | S01 00:01 |' in A
+      and '| S01-Y1 | 痛苦来了，先别跑。 | 面对情绪 | S01 00:04 |' in A and '| S01-B1 | 情绪像天上的云，来了又走。 | 不认同情绪 | S01 00:06 |' in A
+      and '| S01-W1 | 我总是焦虑怎么办？ | 先停下来，感受呼吸。 | 先接纳，再带着做练习 | S01 00:08–00:12 |' in A
+      and '- 每天静坐（S01-02）' in A and '- S01 00:08 假 AI 标的存疑' in A, A[:2500])
+_pa = mentor.parse_atoms(A)
+check('蒸馏：读得出新的几种条目（原话、比喻和故事、问答）', _pa['S01-Y1']['kind'] == '原话' and _pa['S01-B1']['cond'] == '不认同情绪'
+      and _pa['S01-W1']['text'] == '问：我总是焦虑怎么办？　答：先停下来，感受呼吸。' and _pa['S01-W1']['t'] == 8
+      and mentor.atom_line(_pa['S01-W1']).endswith('回应方式：先接纳，再带着做练习'), _pa)
 _rv = bool(docs.load(str(DS / '第一课.mp4')).get('reviewed'))
 check('蒸馏：三份文件都注明来源有几节人工校对过，没校对的在观点库开头说明（蒸馏规范 V2.0 第四节）',
       all(f'来源人工校对: {int(_rv)}/1 节' in t for t in (A, P, D)) and (('还没人工校对' in A) != _rv), A[:700])
-check('蒸馏：老师画像第一节是程序固定写的规则，后面是 AI 写的', '## 一、你的身份和规则（给 AI）' in P and '「**蒸馏老师**」的数字分身' in P
-      and '1 节课（S01～S01' in P and P.index('## 一、') < P.index('## 二、他是谁'), P[:800])
+check('蒸馏：老师画像第一节是程序固定写的灵修版规则（没有买卖建议的限制；照实说是 AI；痛苦时先关心、建议找专业帮助；像老师那样说话），后面是 AI 写的',
+      '## 一、你的身份和规则（给 AI）' in P and '灵修 / 心灵成长老师「**蒸馏老师**」的数字分身' in P and '不是他本人' in P and '心理援助' in P
+      and '买卖' not in P and '交易' not in P and '1 份资料（S01～S01' in P and P.index('## 一、') < P.index('## 二、他是谁'), P[:800])
 check('蒸馏：课程蒸馏有说明和 AI 合并的正文', D.startswith('---\n老师: 蒸馏老师\n类型: 课程蒸馏') and '## 一、一句话' in D and '程序检查' not in D, D[:600])
-check('蒸馏：做完能直接在老师工作台对话（没剪藏的课也能对上视频）', res['points'] == 2 and mentor.get(dm['id'])['distill_done']
+check('蒸馏：做完能直接在老师工作台对话（没剪藏的课也能对上视频）', res['points'] == 5 and mentor.get(dm['id'])['distill_done']
       and [(s['sid'], s['found']) for s in mentor.get(dm['id'])['sources']] == [('S01', True)]
-      and mentor.build_messages(mentor.get(dm['id']), [], '风险')[1]['atoms'] == 3, mentor.get(dm['id'])['sources'])
-calls = []
-_llm.stream = lambda s, n, m, cancel=None, json_mode=False: (calls.append(m[0]['content']), fake_ai.stream(s, n, m, cancel, json_mode))[1]
+      and mentor.build_messages(mentor.get(dm['id']), [], '情绪')[1]['atoms'] == 6, (res, mentor.get(dm['id'])['sources']))
+calls, users = [], []
+_llm.stream = lambda s, n, m, cancel=None, json_mode=False: (calls.append(m[0]['content']), users.append(m[-1]['content']), fake_ai.stream(s, n, m, cancel, json_mode))[2]
 api.call('distill_add', {'id': dm['id'], 'paths': [str(DS / '第一课.mp4'), str(DS / '第二课.mp4')]})
 st_ = distill.status(dm['id'])
 check('蒸馏：加新课，已经在的不重复加，新课接着编号', [(x['sid'], x['state']) for x in st_['lessons']] == [('S01', 'done'), ('S02', 'todo')], st_['lessons'])
 res = distill.run(dm['id'], jobs.Job('distill'))
 check('蒸馏：更新时只提取新课，再重新合并、写画像', calls.count(distill.EXTRACT_SYSTEM) == 1 and distill.MERGE_SYSTEM in calls
       and distill.PERSONA_SYSTEM in calls and res['extracted'] == 1 and '| S02-01 |' in (DT / '01、观点库（逐节提取）.md').read_text(encoding='utf-8'), (res, len(calls)))
+_pu = users[calls.index(distill.PERSONA_SYSTEM)]
+check('蒸馏：写老师画像时附上问答、原话、比喻和故事（灵修老师像不像主要看这些）', '# 问答（学员问，老师怎么回应）' in _pu and '[S01-W1]' in _pu
+      and '# 老师原话' in _pu and '[S02-Y1]' in _pu and '# 比喻和故事' in _pu and '[S01-B1]' in _pu, _pu[:1500])
 check('蒸馏：覆盖前把原来的三份文件备份', len(list((config.DATA_DIR / 'backups' / '蒸馏').glob('蒸馏老师-*'))) == 1)
 calls.clear()
 distill.run(dm['id'], jobs.Job('distill'))
@@ -1211,17 +1259,52 @@ calls.clear()
 distill.run(dm['id'], jobs.Job('distill'))
 distill.MERGE_LIMIT, distill.GROUP_CHARS = _old_limit, 60000
 check('蒸馏：观点库太大（几十节的大课）先分组小结再合并', calls.count(distill.GROUP_SYSTEM) == 2 and calls.count(distill.EXTRACT_SYSTEM) == 1, calls)
-check('蒸馏：查出 AI 写的、观点库里没有的编号', distill.bad_refs('见（S01-01、02、09）和 S02-A1、S07-03、2024 年', mentor.parse_atoms(A + '| S02-A1 | x | S02 00:01 |')) == ['S01-09', 'S07-03'])
+check('蒸馏：查出 AI 写的、观点库里没有的编号（原话 Y、问答 W 也查）', distill.bad_refs('见（S01-01、02、09）和 S02-A1、S07-03、S01-Y1、Y3、S01-W01、S01-B2、2024 年', mentor.parse_atoms(A + '| S02-A1 | x | S02 00:01 |')) == ['S01-09', 'S01-B2', 'S01-Y3', 'S07-03'])
 check('蒸馏：出处时间超出课程长度的标「时间待核对」', distill._fix_src('S03', '99:00', 600) == ('S03 99:00（时间待核对）', False)
       and distill._fix_src('S03', 'S03 01:00-02:00', 600) == ('S03 01:00–02:00', True))
+check('蒸馏：文字资料的出处写成「第几段」，超出段数的标「位置待核对」', distill._fix_src('S02', '第3-5段', unit='段', size=6) == ('S02 第3–5段', True)
+      and distill._fix_src('S02', 'S02 第9段', unit='段', size=6) == ('S02 第9段（位置待核对）', False)
+      and distill._fix_src('S02', '12', unit='页', size=20) == ('S02 第12页', True) and distill._fix_src('S02', '', unit='段')[1] is False)
 _llm.stream, _llm.check = _old_stream, _old_check
 api.call('mentor_remove', {'id': dm['id']})
-OLD = KB / '04、外部知识转化库' / '搬家老师'
+# 文字资料（文章、对话记录）也能蒸馏：按段落编号，出处「S01 第5–6段」，对话时按段落找相关原文
+(DS / '对话记录.txt').write_text('学员：老师，我总是焦虑。\n\n老师：焦虑来了，先别跑。\n学员：那我该怎么办？\n老师：先停下来，感受呼吸。\n情绪像云。\n每天静坐十分钟。\n', encoding='utf-8')
+(DS / '第一课.txt').write_text('导出的文字稿', encoding='utf-8')
+_names = [f['name'] for f in library._listdir(str(DS))[1]]
+check('媒体库也列出 txt / md 文字资料，和音视频同名的导出文字稿不列', '对话记录.txt' in _names and '第一课.txt' not in _names, _names)
+_tu = mentor.text_units(str(DS / '对话记录.txt'))
+check('文字资料按段落编号（每个非空行一段）', _tu['unit'] == '段' and [u['n'] for u in _tu['units']] == [1, 2, 3, 4, 5, 6]
+      and _tu['units'][3]['text'] == '老师：先停下来，感受呼吸。', _tu)
+_llm.stream, _llm.check = fake_ai.stream, (lambda *a, **k: None)
+tm_ = api.call('distill_create', {'name': '文字老师', 'paths': [str(DS / '对话记录.txt')]})['mentor']
+distill.run(tm_['id'], jobs.Job('distill'))
+A2 = (KB / '灵修老师' / '文字老师' / '01、观点库（逐节提取）.md').read_text(encoding='utf-8')
+check('文字资料蒸馏：来源写「文字资料」，出处是段落号', '| S01 | 对话记录 | （文字资料：对话记录.txt） |' in A2
+      and '| S01-W1 | 我总是焦虑怎么办？ | 先停下来，感受呼吸。 | 先接纳，再带着做练习 | S01 第5–6段 |' in A2
+      and '| S01-01 | 先看见自己的情绪（假 AI）。 | — | S01 第2–3段 | 观点 |' in A2 and '来源人工校对: 1/1 节' in A2, A2[:2500])
+_tov = mentor.overview(tm_['id'])
+_msgs = mentor.build_messages(mentor.get(tm_['id']), [], '焦虑怎么办')[0][0]['content']
+check('文字资料：对话时能对上原文段落（出处、鼠标停上去看原文、按段落找相关原文）', _tov['atoms']['S01-W1']['p'] == 5 and _tov['atoms']['S01-W1']['t'] is None
+      and _tov['mentor']['sources'][0]['text'] and _tov['mentor']['sources'][0]['found']
+      and mentor.quote(tm_['id'], 'S01', 0, 4)['text'].startswith('[第4段] 老师：先停下来') and '[S01 第1–' in _msgs, _msgs[-1500:])
+d_s = distill.status(tm_['id'])
+(DS / '对话记录.txt').write_text('学员：改过了。\n', encoding='utf-8')
+check('文字资料改过：标「改过」，再蒸馏时重新提取', d_s['lessons'][0]['state'] == 'done' and d_s['lessons'][0]['text']
+      and distill.status(tm_['id'])['lessons'][0]['state'] == 'changed')
+_pdf = ROOT / 'test-media' / '测试书籍.pdf'
+if _pdf.exists():
+    _pu = mentor.text_units(str(_pdf))
+    check('PDF 按页编号（出处「第几页」）', _pu['unit'] == '页' and _pu['units'] and _pu['units'][0]['n'] >= 1)
+_llm.stream, _llm.check = _old_stream, _old_check
+api.call('mentor_remove', {'id': tm_['id']})
+(DS / '对话记录.txt').unlink()
+(DS / '第一课.txt').unlink()
+OLD = KB / '别的位置' / '搬家老师'
 shutil.copytree(TEACHER, OLD)
 mv = mentor.add(str(OLD))
-shutil.move(str(OLD), str(KB / '04、外部知识转化库' / '01、老师分身蒸馏资料' / '搬家老师'))
-check('老师文件夹挪进「01、老师分身蒸馏资料」后，软件自己找到新位置、改好记录',
-      mentor.get(mv['id'])['folder'] == str(KB / '04、外部知识转化库' / '01、老师分身蒸馏资料' / '搬家老师')
+shutil.move(str(OLD), str(KB / '灵修老师' / '搬家老师'))
+check('老师文件夹挪进 Obsidian 库的「灵修老师」后，软件自己找到新位置、改好记录',
+      mentor.get(mv['id'])['folder'] == str(KB / '灵修老师' / '搬家老师')
       and mentor.overview(mv['id'])['files']['atoms'].endswith('01、观点库（逐节提取）.md'), mentor.get(mv['id'])['folder'])
 mentor.remove(mv['id'])
 
@@ -1230,19 +1313,19 @@ from core import glossary  # noqa: E402
 L1 = str(DS / '第一课.mp4')
 pl = glossary.plan(L1)
 check('建术语表之前：告诉界面建在知识库哪里、能绑定哪个文件夹（默认加进媒体库的那个）',
-      pl['folder'].endswith('02、规则体系\\02、课程专用规则') and pl['binds'][-1]['path'] == str(DS) and pl['binds'][-1]['top'], pl)
+      pl['folder'].endswith('灵修术语表') and pl['binds'][-1]['path'] == str(DS) and pl['binds'][-1]['top'], pl)
 d_ = docs.load(L1)
 check('没选老师时：命令行照旧不找新术语，界面上（建术语表）照样找',
       workflow.why_skip('terms', d_, workflow.Facts(config.load(), teacher=None)) is not None
       and workflow.why_skip('terms', d_, workflow.Facts(config.load(), opts={'new_glossary': True}, teacher=None), force=True) is None)
 gc = api.call('glossary_create', {'name': '喜悦老师', 'bind': str(DS), 'title': '第一课',
                                   'terms': [{'term': '觉知', 't': 3, 'quote': '保持觉知'}], 'errors': [{'wrong': '绝知', 'right': '觉知', 't': 5, 'quote': '绝知'}]})
-GF = KB / '02、规则体系' / '02、课程专用规则' / '喜悦老师课程术语表.md'
+GF = KB / '灵修术语表' / '喜悦老师术语表.md'
 gtxt = GF.read_text(encoding='utf-8') if GF.is_file() else ''
 gt = config.get_teacher(gc.get('teacher'))
 check('建术语表：新老师档案关联知识库里新建的术语表（结构照峰级：怎么用 / 术语 / 识别错误对照 / 逐课补充），勾选的写进逐课补充',
       gc['ok'] and gc['created'] and gc['file_created'] and gc['file'] == str(GF) and '# 一、怎么用' in gtxt and '# 三、识别错误对照' in gtxt
-      and '# 四、逐课补充（猛人学习）' in gtxt and '| 觉知 | 《第一课》' in gtxt and '| 绝知 | 觉知 |' in gtxt, (gc, gtxt[-600:]))
+      and '# 四、逐课补充（猛人灵修）' in gtxt and '| 觉知 | 《第一课》' in gtxt and '| 绝知 | 觉知 |' in gtxt, (gc, gtxt[-600:]))
 check('建术语表：软件读得出新术语表（觉知当热词，绝知 → 觉知 作校对参考），这个文件夹里的课以后都用这位老师',
       gt and '觉知' in gt['terms'] and '绝知 => 觉知' in gt['terms'] and library.folder_teacher(str(DS / '第二课.mp4')) == gc['teacher'], gt and gt['terms'])
 gc2 = api.call('glossary_create', {'name': '喜悦老师', 'title': '第二课', 'terms': [{'term': '臣服', 't': 1, 'quote': '臣服'}], 'errors': []})
@@ -1254,7 +1337,7 @@ DT_TEXT = glossary.template('去重老师').replace('| 术语 | 含义 |\n| --- 
     .replace('| ASR常见识别 | 正确术语 | 说明 |\n| --- | --- | --- |\n', '| ASR常见识别 | 正确术语 | 说明 |\n| --- | --- | --- |\n| 绝知 | 觉知 | |\n') \
     .replace('| 直接替换的错写 | 正确术语 |\n| --- | --- |\n', '| 直接替换的错写 | 正确术语 |\n| --- | --- |\n| 绝知 | 觉知 |\n')
 new_, nt_, ne_ = glossary.merge_markdown(DT_TEXT, [{'term': '觉知', 't': 1}, {'term': ' 新词 ', 't': 2}], [{'wrong': '绝知', 'right': '觉知'}, {'wrong': '新错', 'right': '新词'}], '第三课')
-sec4_ = new_[new_.index('# 四、逐课补充（猛人学习）'):]
+sec4_ = new_[new_.index('# 四、逐课补充（猛人灵修）'):]
 check('去重：作者整理在「二、术语」「识别错误对照」里的，不再重复加进逐课补充', nt_ == 1 and ne_ == 1 and '| 觉知 |' not in sec4_ and '| 绝知 |' not in sec4_
       and '| 新词 | 《第三课》' in sec4_ and '| 新错 | 新词 |' in sec4_, sec4_)
 w_, h_, f_ = _llm.parse_terms('绝知 => 觉知\n绝知 =>! 觉知\n觉知, 觉知')
@@ -1318,8 +1401,8 @@ check('圆桌：互相回应一轮（看到别的老师的回答），再重新�
       and '## 乙老师的回答' in asks[-3] and '## 甲老师的回答' in asks[-2] and '风险怎么定？' in asks[-3] and len(calls) == 3, asks[-3:])
 sv = api.call('round_save', {'cid': rc['id'], 'folder': roundtable.TOPIC_FOLDERS[3]})
 RF = Path(sv['file'])
-check('圆桌：收藏到「02、主题蒸馏资料/04、操作技术相关资料/日期、问题、多位老师讨论.md」', sv['ok'] and RF.parent.name == '04、操作技术相关资料'
-      and RF.parent.parent.name == '02、主题蒸馏资料' and RF.name.endswith('、风险怎么定、多位老师讨论.md')
+check('圆桌：收藏到 Obsidian 库的「灵修主题/04、财富与事业/日期、问题、多位老师讨论.md」', sv['ok'] and RF.parent.name == '04、财富与事业'
+      and RF.parent.parent.name == '灵修主题' and RF.parent.parent.parent == KB and RF.name.endswith('、风险怎么定、多位老师讨论.md')
       and '### 乙老师（回应其他老师）' in RF.read_text(encoding='utf-8') and '### AI 总结' in RF.read_text(encoding='utf-8'), sv)
 api.call('round_save', {'cid': rc['id'], 'folder': roundtable.TOPIC_FOLDERS[3]})
 check('圆桌：再收藏更新同一个文件，覆盖前备份', len(list(RF.parent.glob('*.md'))) == 1
@@ -1328,13 +1411,13 @@ calls.clear()
 tp = api.call('topic_start', {'topic': '止损', 'mentors': pair, 'folder': roundtable.TOPIC_FOLDERS[0]})
 j_ = _wait(tp['job'])
 tg = api.call('topic_get', {'id': tp['topic']['id']})
-check('主题蒸馏：每位老师先整理一次，再合并；写进「02、主题蒸馏资料/对应主题/日期、主题、跨来源蒸馏.md」', j_.status == 'done'
+check('主题蒸馏：每位老师先整理一次，再合并；写进「灵修主题/对应主题/日期、主题、跨来源蒸馏.md」', j_.status == 'done' and Path(tg['topic']['file']).parent.parent.name == '灵修主题'
       and calls == [roundtable.TOPIC_TEACHER_SYSTEM, roundtable.TOPIC_TEACHER_SYSTEM, roundtable.TOPIC_MERGE_SYSTEM]
       and tg['text'].replace('\r\n', '\n').startswith('---\n类型: 主题蒸馏\n主题: 止损') and '## 一、一句话' in tg['text'] and tg['topic']['file'].endswith('、止损、跨来源蒸馏.md')
       and tg['names'] == {'甲老师': pair[0], '乙老师': pair[1]}, (j_.status, j_.error, {k: v for k, v in tg.items() if k != 'text'}, tg.get('text', '')[:300]))
 _llm.stream, _llm.check = _old_stream, _old_check
-check('主题蒸馏：查出出处里老师不对、编号不存在的', roundtable.bad_refs('［甲老师 S01-01］［甲老师 S09-01］［丙 S01-01］［乙老师 S01 00:02］',
-      {'甲老师': mentor.get(pair[0]), '乙老师': mentor.get(pair[1])}) == ['丙 S01-01', '甲老师 S09-01'])
+check('主题蒸馏：查出出处里老师不对、编号不存在的（文字资料的「第几段」也认）', roundtable.bad_refs('［甲老师 S01-01］［甲老师 S09-01］［丙 S01-01］［乙老师 S01 00:02］［乙老师 S01 第3段］［乙老师 S08 第3段］',
+      {'甲老师': mentor.get(pair[0]), '乙老师': mentor.get(pair[1])}) == ['丙 S01-01', '乙老师 S08 第3段', '甲老师 S09-01'])
 pm = roundtable.prompts_markdown()
 check('提示词：软件用的每一种都能显示、能生成知识库文件，和代码里的一字不差', len(roundtable.prompt_list()) == 11
       and distill.EXTRACT_SYSTEM.strip() in pm and roundtable.TOPIC_MERGE_SYSTEM.strip() in pm and mentor.CHAT_RULES in pm)
