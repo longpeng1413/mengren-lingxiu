@@ -120,6 +120,8 @@ _seg = [{'start': 0, 'end': 1, 'text': '一句', 'tr': ''}]
 (TMP / '乙.mp4.猛人灵修.json').write_text(json.dumps({'segments': _seg, 'teacher': 'sibteach01'}), encoding='utf-8')
 (TMP / '丙.mp4.猛人学习.json').write_text(json.dumps({'segments': _seg, 'teacher': 'sibteach02'}), encoding='utf-8')
 (TMP / '丁.mp4.猛人灵修.json').write_text(json.dumps({'segments': _seg, 'teacher': _lt['id']}), encoding='utf-8')
+(TMP / '戊.mp4.猛人灵修.json').write_text(json.dumps({'segments': _seg, 'doubts': [{'t': 0, 'reason': '听不清', 'text': '一句'}, {'t': 0.5, 'reason': '疑为别字', 'text': '一句'}]}), encoding='utf-8')
+check('媒体库数出还没确认的存疑句（好标「存疑 N」）', _lib._status(str(TMP / '戊.mp4'), {}).get('doubts') == 2 and not _lib._status(str(TMP / '丁.mp4'), {}).get('doubts'))
 check('老师编号对不上时按名字换成猛人灵修的同名老师，对不上就清空；本来就是猛人灵修的老师不动',
       [docs.load(str(TMP / f'{n}.mp4'))['teacher'] for n in '甲乙丙丁'] == [_lt['id'], _lt['id'], '', _lt['id']])
 config.delete_teacher(_lt['id'])
