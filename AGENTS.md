@@ -258,7 +258,7 @@ python -m venv .venv
 
 1. `.venv\Scripts\python build.py` → 输出到 `dist-next\`（不碰正在用的 `dist\`）。
 2. `.venv\Scripts\python tests\run_ui_test.py --exe` 测打包版。
-3. 换进 `dist`：用户已允许升级时关闭正在运行的程序。先正常退出（运行 `& "D:\mengren-lingxiu\dist\猛人灵修\猛人灵修.exe" --quit`，等它自己保存退出，最多等 15 秒左右，还不退出才 `Stop-Process`；1.7.12 及以前的版本没有 --quit，用 `CloseMainWindow()`），然后执行「更新到新版.bat」里同样的步骤（把 `dist\猛人灵修` 里的「缓存（可随时删除）」「日志（可随时删除）」移进 `dist-next\猛人灵修`，删掉 `dist`，把 `dist-next` 改名为 `dist`）。如果用户在另一个对话里正用命令行整理课程，不影响换新版（命令行用的是源码，不是 `dist`），最后用 `explorer.exe "D:\mengren-lingxiu\dist\猛人灵修\猛人灵修.exe"` 启动（不要直接启动，见上面「转存」）并告诉用户。用户也可以自己双击「更新到新版.bat」。
+3. 换进 `dist`：**打包、测试通过后一律直接换成新版，不用先问，不管用户是不是正在用**（用户 2026-10-29 定；后台整理队列只在内存里，退出会没了，换完要告诉用户哪些课要重新排）。先正常退出（运行 `& "D:\mengren-lingxiu\dist\猛人灵修\猛人灵修.exe" --quit`，等它自己保存退出，最多等 15 秒左右，还不退出才 `Stop-Process`；1.7.12 及以前的版本没有 --quit，用 `CloseMainWindow()`），然后执行「更新到新版.bat」里同样的步骤（把 `dist\猛人灵修` 里的「缓存（可随时删除）」「日志（可随时删除）」移进 `dist-next\猛人灵修`，删掉 `dist`，把 `dist-next` 改名为 `dist`）。如果用户在另一个对话里正用命令行整理课程，不影响换新版（命令行用的是源码，不是 `dist`），最后用 `explorer.exe "D:\mengren-lingxiu\dist\猛人灵修\猛人灵修.exe"` 启动（不要直接启动，见上面「转存」）并告诉用户。用户也可以自己双击「更新到新版.bat」。
 
 ## 发新版本
 
