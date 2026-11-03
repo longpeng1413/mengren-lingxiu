@@ -20,13 +20,74 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     // 媒体库
     const lib = await api('library_add_folder', { path: base });
     await loadLibrary(lib.groups);
-    ok('添加文件夹到媒体库（视频、音频和书籍）', document.querySelectorAll('.lib-item').length === 3, document.querySelectorAll('.lib-item').length);
+    // 左上角「书籍 / 课程 / 老师」（2026-10-29）：书和音视频分开列
+    ok('左上角有「书籍」「课程」「老师」三个按钮', [...document.querySelectorAll('#libTabs .lib-tab')].map(b => b.textContent).join('|') === '书籍|课程|老师');
+    ok('添加文件夹到媒体库：「课程」里只列视频、音频', document.querySelectorAll('.lib-item').length === 2
+      && ![...document.querySelectorAll('.lib-item')].some(el => el.textContent.includes('测试书籍')), document.querySelectorAll('.lib-item').length);
+    document.querySelector('#libTabs [data-view="book"]').click();
+    ok('「书籍」里只列书和文档，文件夹后面的数字只数书', document.querySelectorAll('.lib-item').length === 1 && document.querySelector('.lib-item').textContent.includes('测试书籍')
+      && document.querySelector('#libBody .lib-gcount').textContent === '1' && document.querySelector('#libSearch').placeholder === '筛选书名');
+    document.querySelector('#libTabs [data-view="course"]').click();
     const item = [...document.querySelectorAll('.lib-item')].find(el => el.textContent.includes('演示视频'));
     ok('媒体库显示字幕数', item && item.textContent.includes('字幕 8'), item && item.textContent);
     item.click();
     ok('点媒体库里的视频就打开', await until(() => S.doc && S.doc.title === '演示视频' && document.querySelectorAll('.cue').length === 8));
     ok('当前视频在列表里高亮', await until(() => document.querySelector('.lib-item.active')));
     ok('视频可以加载', await until(() => v.readyState >= 1 && v.duration > 39), { rs: v.readyState, d: v.duration });
+    // 字幕里手动插截图（2026-10-30）：插在正在播放的这一句后面，可以上移 / 下移 / 删除
+    const ssSegs = S.doc.segments, ssK = 2;
+    v.currentTime = (ssSegs[ssK].start + ssSegs[ssK].end) / 2; await wait(300);
+    ok('字幕栏有「插入截图」按钮（视频才有）', !document.querySelector('#btnSubShot').hidden);
+    document.querySelector('#btnSubShot').click();
+    const ssAfter = () => { const el = document.querySelector('#cues .sub-shot'); const prev = el && el.previousElementSibling; return prev && prev.classList.contains('cue') ? +prev.dataset.i : -1; };
+    ok('插入截图：插在正在播放的这一句后面，图片加载出来', (S.doc.sub_shots || []).length === 1 && ssAfter() === ssK
+      && await until(() => (document.querySelector('#cues .sub-shot img') || {}).src), [S.doc.sub_shots, ssAfter()]);
+    document.querySelector('#cues .sub-shot [data-ss="down"]').click();
+    ok('截图下移：挪到下一句后面', ssAfter() === ssK + 1 && S.doc.sub_shots[0].at === ssSegs[ssK + 1].start, ssAfter());
+    document.querySelector('#cues .sub-shot [data-ss="up"]').click(); document.querySelector('#cues .sub-shot [data-ss="up"]').click();
+    ok('截图上移两次：回到上上一句后面', ssAfter() === ssK - 1, ssAfter());
+    renderCues();
+    ok('字幕重画后截图还在原来的位置', ssAfter() === ssK - 1);
+    // 编辑截图：裁剪、调整大小（2026-11-02）。seDrag 在编辑框的图上按比例位置拖动
+    window.seDrag = (x0, y0, x1, y1, el) => {
+      const r = $('#seImg').getBoundingClientRect();
+      const ev = (type, x, y, target) => (target || $('#seStage')).dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1, clientX: r.left + r.width * x, clientY: r.top + r.height * y }));
+      ev('pointerdown', x0, y0, el); ev('pointermove', x1, y1); ev('pointerup', x1, y1);
+    };
+    const near = (a, b) => a && b && a.every((x, i) => Math.abs(x - b[i]) < 0.02);
+    document.querySelector('#cues .sub-shot [data-ss="crop"]').click();
+    ok('字幕截图点「裁剪」打开裁剪截图，显示整张截图', await until(() => $('#dlgShotEdit').open && $('#seImg').naturalWidth > 0));
+    seDrag(0.2, 0.2, 0.8, 0.7, $('#seBox'));
+    ok('一开始框是整张图：拖动画出新框', near(SE.crop, [0.2, 0.2, 0.8, 0.7]), SE.crop);
+    seDrag(0.8, 0.7, 0.7, 0.6, $('#seBox [data-h="se"]'));
+    ok('拖右下角缩小框', near(SE.crop, [0.2, 0.2, 0.7, 0.6]), SE.crop);
+    seDrag(0.4, 0.4, 0.3, 0.45, $('#seBox'));
+    ok('拖框里面移动框', near(SE.crop, [0.1, 0.25, 0.6, 0.65]), SE.crop);
+    $('#seOk').click(); await until(() => !$('#dlgShotEdit').open); await wait(50);
+    const subX = S.doc.sub_shots[0], subEl = () => document.querySelector('#cues .sub-shot');
+    ok('确定后记下裁剪范围，字幕栏显示裁剪后的图', near(subX.crop, [0.1, 0.25, 0.6, 0.65]) && !subX.w
+      && await until(() => /_c[0-9a-f]{8}\.jpg/.test((subEl().querySelector('img') || {}).src || '')), [subX, (subEl().querySelector('img') || {}).src]);
+    // 「大小」是单独的按钮（2026-11-02 用户：裁剪和调整大小是两个功能）：拖滑块马上变，不用点确定
+    subEl().querySelector('[data-ss="size"]').click();
+    const ctxM = $('#ctxMenu');
+    ok('字幕截图点「大小」弹出滑块（没被马上关掉）', !ctxM.hidden && ctxM.querySelector('input[type=range]'));
+    const rg = ctxM.querySelector('input[type=range]'); rg.value = 400; rg.dispatchEvent(new Event('input'));
+    ok('拖滑块：图马上变成 400 像素宽', subX.w === 400 && subEl().style.maxWidth === '402px' && subEl().classList.contains('sized')
+      && ctxM.querySelector('[data-a=lab]').textContent === '400 像素宽', subX);
+    ctxM.querySelector('[data-p="240"]').click();
+    ok('点「小」', subX.w === 240 && subEl().style.maxWidth === '242px');
+    ctxM.querySelector('[data-p="0"]').click();
+    ok('点「自动」：恢复原来的大小', !subX.w && !subEl().style.maxWidth && !subEl().classList.contains('sized'), subX);
+    closeMenus();
+    document.querySelector('#cues .sub-shot [data-ss="crop"]').click();
+    await until(() => $('#dlgShotEdit').open);
+    ok('再打开裁剪：框是上次的', near(SE.crop, subX.crop));
+    $('#seFull').click(); $('#seOk').click(); await until(() => !$('#dlgShotEdit').open); await wait(50);
+    ok('点「整张」：恢复成整张截图', !subX.crop, subX);
+    const keepConfirm = window.confirm; window.confirm = () => true;
+    document.querySelector('#cues .sub-shot [data-ss="del"]').click();
+    window.confirm = keepConfirm;
+    ok('删除截图', !(S.doc.sub_shots || []).length && !document.querySelector('#cues .sub-shot'));
 
     // 老师与术语表
     const tr = await api('teacher_save', { teacher: { name: '测试老师', terms: '底层逻辑\n风级 => 峰级', lang: 'en' } });
@@ -40,10 +101,19 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     const cue3 = document.querySelectorAll('.cue')[3];
     cue3.querySelector('.src').dispatchEvent(new MouseEvent('click', { bubbles: true }));
     ok('点字幕跳到对应时间', await until(() => Math.abs(v.currentTime - S.doc.segments[3].start) < 0.3), v.currentTime);
-    const src0 = document.querySelectorAll('.cue')[0].querySelector('.src');
+    const src0 = document.querySelectorAll('.cue')[0].querySelector('.src'), orig0 = src0.textContent;
     src0.focus(); document.getSelection().selectAllChildren(src0);
     document.execCommand('insertText', false, '改过的第一句');
     src0.blur();
+    // 测试窗口不在最前面时（2026-11-02 几次偶发失败）：打字可能进不去，或者字进去了、「开始编辑」的事件却没触发（软件不知道原文）。
+    // 软件没记下这次修改时，放回原文，按编辑时同样的顺序触发事件再改一次
+    if (!(S.doc.fixes || []).some(f => f.after === '改过的第一句' && f.by === 'manual')) {
+      src0.textContent = orig0;
+      src0.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      src0.textContent = '改过的第一句';
+      src0.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      src0.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    }
     ok('自动保存', await until(() => !S.dirty && !S.saving, 5000));
     ok('手动改字幕记下改动（用来积累术语表）', (S.doc.fixes || []).some(f => f.after === '改过的第一句' && f.by === 'manual' && f.before && f.before !== f.after), S.doc.fixes);
     const reread = await api('open', { path: base + '演示视频.mp4' });
@@ -141,11 +211,35 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     }
     const subW = document.querySelector('#right').getBoundingClientRect().width;
     ok('字幕栏没有被挤掉', subW >= 250, subW);
+    // 视频、字幕、AI 区都能隐藏（2026-11-02，和书籍一样）：缩成一条，点它恢复；全部隐藏不行
+    const railOf = sel => document.querySelector(sel + ' > .pane-rail');
+    const W = sel => document.querySelector(sel).getBoundingClientRect().width, Hh = sel => document.querySelector(sel).getBoundingClientRect().height;
+    const subW0 = W('#right');
     document.querySelector('#btnAiHide').click(); await wait(50);
-    ok('隐藏 AI 区', !document.querySelector('#aiPanel').classList.contains('docked') && !document.querySelector('#btnShowAi').hidden);
-    document.querySelector('#btnShowAi').click();
+    ok('隐藏右侧的 AI 区：缩成竖条，空出来的宽度分给视频和字幕', $('#aiPanel').classList.contains('pane-collapsed') && W('#aiDockSide') < 60
+      && getComputedStyle(railOf('#aiPanel')).writingMode.startsWith('vertical') && W('#right') > subW0 + 100, [W('#aiDockSide'), W('#right'), subW0]);
+    railOf('#aiPanel').click(); await wait(50);
+    ok('点竖条恢复 AI 区', !$('#aiPanel').classList.contains('pane-collapsed') && !S.settings.ai_hidden && W('#aiDockSide') > 250);
     savePrefs({ ai_dock: 'bottom', video_h: 0.55 });
     ok('移回视频下方', document.querySelector('#aiPanel').parentElement.id === 'aiDockBottom');
+    const vv = $('#video'), leftW0 = W('#left'), aiH0 = Hh('#aiDockBottom');
+    vv.muted = true; await vv.play().catch(() => {});
+    document.querySelector('[data-pane-hide="video"]').click(); await wait(400);
+    ok('隐藏视频：缩成横条，AI 区占满左边；声音照常播放', $('#playerArea').classList.contains('pane-collapsed') && Hh('#playerArea') < 50
+      && Hh('#aiDockBottom') > aiH0 + 100 && !vv.paused && vv.currentTime > 0, [Hh('#playerArea'), Hh('#aiDockBottom'), aiH0, vv.paused]);
+    vv.pause(); vv.muted = false;
+    document.querySelector('[data-pane-hide="subs"]').click(); await wait(50);
+    ok('隐藏字幕栏：缩成竖条，左边变宽', $('#right').classList.contains('pane-collapsed') && W('#right') < 60 && W('#left') > leftW0 + 150, [W('#right'), W('#left'), leftW0]);
+    document.querySelector('#btnAiHide').click(); await wait(50);
+    ok('最后一块不能隐藏', !S.settings.ai_hidden && !$('#aiPanel').classList.contains('pane-collapsed')
+      && [...document.querySelectorAll('.toast')].some(t => t.textContent.includes('至少要留一块')));
+    railOf('#right').click(); await wait(50);
+    document.querySelector('#btnAiHide').click(); await wait(50);
+    ok('视频和 AI 区都隐藏：左边整列缩成竖条，字幕占满', $('#stageMain').classList.contains('left-rail') && W('#left') < 60 && W('#right') > subW0 + 150
+      && getComputedStyle(railOf('#playerArea')).writingMode.startsWith('vertical'), [W('#left'), W('#right')]);
+    railOf('#playerArea').click(); railOf('#aiPanel').click(); await wait(50);
+    ok('全部恢复', !S.settings.video_hidden && !S.settings.subs_hidden && !S.settings.ai_hidden && !document.querySelector('#stageMain .pane-collapsed')
+      && Math.abs(W('#left') - leftW0) < 30, [W('#left'), leftW0]);
 
     // 课程重点可以编辑
     document.querySelector('#btnEditSummary').click();
@@ -212,6 +306,215 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     renderSummary();
     ok('课程重点里的插图能显示', await until(() => { const im = document.querySelector('#summaryBox .shot-fig img'); return im && im.complete && im.naturalWidth > 0; }, 15000));
     document.querySelectorAll('.ai-tabs .tab')[0].click();
+    // 课程重点里手动插截图、上移 / 下移 / 删除、打印（2026-11-02）
+    const sumKeep = S.doc.summary;
+    S.doc.summary = '## 一、开头\n\n- 要点甲 [00:03]\n- 要点乙 [00:20]\n\n## 二、后面\n\n- 要点丙 [00:30]';
+    S.doc.sum_shots = []; renderSummary(); updateButtons();
+    ok('课程重点有「插入截图」「打印」「导出 PDF」按钮', !$('#btnSumShot').hidden && !$('#btnSumShot').disabled && !$('#btnPrint').hidden && !$('#btnPrint').disabled && !$('#btnPdf').hidden && !$('#btnPdf').disabled);
+    v.currentTime = 25; await wait(300);
+    $('#btnSumShot').click();
+    ok('插入截图：插在出处时间不晚于现在、最接近的那一条后面，图片加载出来', S.doc.summary.includes('- 要点乙 [00:20]\n\n![[画面 00:25]]\n\n## 二、后面')
+      && S.doc.sum_shots.includes(25) && await until(() => (document.querySelector('#summaryBox .shot-fig img') || {}).src), S.doc.summary);
+    $('#summaryBox .fig-tools [data-sf="up"]').click();
+    ok('截图上移：挪到上一条前面', S.doc.summary.includes('- 要点甲 [00:03]\n\n![[画面 00:25]]\n\n- 要点乙'), S.doc.summary);
+    $('#summaryBox .fig-tools [data-sf="down"]').click(); $('#summaryBox .fig-tools [data-sf="down"]').click();
+    ok('截图下移两次：越过小标题', S.doc.summary.includes('## 二、后面\n\n![[画面 00:25]]\n\n- 要点丙'), S.doc.summary);
+    ok('图下面的按钮不朗读', !TTS.segments($('#summaryBox')).some(x => x.text.includes('上移')));
+    $('#summaryBox .fig-tools [data-sf="crop"]').click();
+    ok('课程重点的图也能「裁剪」', await until(() => $('#dlgShotEdit').open && $('#seImg').naturalWidth > 0));
+    seDrag(0.1, 0.1, 0.5, 0.5, $('#seBox'));
+    $('#seOk').click(); await until(() => !$('#dlgShotEdit').open); await wait(50);
+    const sumFig = () => document.querySelector('#summaryBox .shot-fig');
+    $('#summaryBox .fig-tools [data-sf="size"]').click();
+    const rg2 = $('#ctxMenu input[type=range]'); rg2.value = 300; rg2.dispatchEvent(new Event('input'));
+    const fe = (S.doc.fig_edits || {})['25'];
+    ok('课程重点的图：按时间记下裁剪和宽度，显示裁剪后的图、马上变成 300 像素宽', fe && fe.w === 300 && fe.crop && Math.abs(fe.crop[2] - 0.5) < 0.02 && sumFig().style.maxWidth === '300px'
+      && await until(() => /_c[0-9a-f]{8}\.jpg/.test((sumFig().querySelector('img') || {}).src || '')), [fe, S.doc.summary]);
+    S.doc.sub_shots = [{ t: 10, at: S.doc.segments[1].start }]; placeSubShots();
+    $('#ctxMenu [data-a=all]').click();
+    ok('「这节课的图都用这个大小」：课程重点和字幕栏的截图一起改', S.doc.sub_shots[0].w === 300 && S.doc.fig_edits['25'].w === 300 && $('#ctxMenu').hidden
+      && document.querySelector('#cues .sub-shot').style.maxWidth === '302px', [S.doc.sub_shots, S.doc.fig_edits]);
+    S.doc.sub_shots = []; placeSubShots();
+    toggleSummaryEdit(true);
+    const sed = $('#summaryEdit'); sed.selectionStart = sed.selectionEnd = sed.value.indexOf('要点甲');
+    v.currentTime = 33; await wait(300);
+    $('#btnSumShot').click();
+    ok('编辑时插在光标那一行后面', S.doc.summary.includes('- 要点甲 [00:03]\n\n![[画面 00:33]]\n\n- 要点乙') && sed.value === S.doc.summary, S.doc.summary);
+    toggleSummaryEdit(false);
+    const keepConfirm2 = window.confirm; window.confirm = () => true;
+    $('#summaryBox .fig-tools [data-sf="del"]').click();
+    window.confirm = keepConfirm2;
+    ok('删除课程重点里的截图', !S.doc.summary.includes('00:33]]') && S.doc.sum_shots.join() === '25' && document.querySelectorAll('#summaryBox .shot-fig').length === 1, S.doc.summary);
+    // 打印（2026-11-02）：打开打印预览（window.print，测试里换成假的 systemPrint，记下那时要印的内容）
+    let printed = null; const keepSys = window.systemPrint;
+    window.systemPrint = async () => { const pa = $('#printArea'); printed = { page: ($('#printPage') || {}).textContent || '', cls: document.body.classList.contains('printing'), html: pa ? pa.innerHTML : '', imgs: pa ? [...pa.querySelectorAll('img')].filter(im => im.complete && im.naturalWidth > 0).length : 0, hidden: pa && getComputedStyle(pa).display === 'none' }; };
+    $('#btnPrint').click();
+    ok('打印：只印课程名和课程重点，插图加载好了，没有上移下移按钮；默认不带出处时间', await until(() => printed) && printed.cls && printed.html.includes(S.doc.title)
+      && printed.html.includes('要点丙') && printed.imgs === 1 && !printed.html.includes('上移') && printed.hidden && !printed.html.includes('[00:30]'), printed);
+    ok('页码印在页眉右边，左边日期、中间课程名；底部留空（不印文件地址）；上边距大、下边距小（2026-11-02）', printed.page.includes('@top-right')
+      && printed.page.includes('counter(page)') && printed.page.includes(S.doc.title.slice(0, 10)) && /@top-left \{ content: "\d{4}\/\d/.test(printed.page)
+      && printed.page.includes('@bottom-center { content: ""; }') && printed.page.includes('margin: 18mm 14mm 12mm'), printed.page);
+    ok('打印窗口关掉后恢复原样（打印内容和页眉都收掉）', await until(() => !document.body.classList.contains('printing') && !$('#printArea') && !$('#printPage')));
+    // 打印时带不带时间（2026-11-02）：课程重点默认不带，打开「带时间」就带；只去方括号 / 括号里的时间，正文里的 9:30 和插图不动
+    ok('去掉出处时间的规则', stripTs('- 甲 [03:57]–[04:14]\n- 乙（[01:02]）说\n- 丙（03:57、05:10）。\n- 9:30 开盘 [00:05]\n![[画面 03:57]]')
+      === '- 甲\n- 乙说\n- 丙。\n- 9:30 开盘\n![[画面 03:57]]');
+    ok('课程重点的「带时间」开关在打印按钮旁边，默认关', !$('#optPrintTsSumWrap').hidden && !$('#optPrintTsSum').checked);
+    $('#optPrintTsSum').click(); printed = null;
+    $('#btnPrint').click();
+    ok('打开「带时间」：打印带出处时间，开关记住了', await until(() => printed) && printed.html.includes('[00:30]') && S.settings.print_ts_summary === true, printed && printed.html.slice(-200));
+    await until(() => !$('#printArea'));
+    $('#optPrintTsSum').click();
+    // 字幕栏「打印」：和剪藏的「完整字幕」一样排，插的截图在挂的那一句下面
+    const psegs = S.doc.segments;
+    S.doc.sub_shots = [{ t: 10, at: psegs[1].start, w: 300, crop: [0, 0, 0.5, 0.5] }];
+    const keepTr = psegs[2].tr; psegs[2].tr = '第三句的译文';
+    S.doc.doubts = [{ t: psegs[3].start, reason: '听不清' }];
+    updateButtons();
+    ok('字幕栏有「打印」「导出 PDF」两个按钮', !$('#btnSubPrint').disabled && !$('#btnSubPdf').disabled);
+    let printed2 = null;
+    window.systemPrint = async () => { const pa = $('#printArea'); printed2 = pa && { html: pa.innerHTML, cues: [...pa.querySelectorAll('.print-cue')].map(x => x.textContent),
+      figAfter: pa.querySelector('.shot-fig') && pa.querySelector('.shot-fig').previousElementSibling.textContent,
+      w: pa.querySelector('.shot-fig') && pa.querySelector('.shot-fig').style.maxWidth,
+      img: [...pa.querySelectorAll('img')].filter(im => im.complete && im.naturalWidth > 0 && /_c[0-9a-f]{8}\.jpg/.test(im.src)).length }; };
+    $('#btnSubPrint').click();
+    ok('打印字幕：课程名、每句 [时间] 原文、译文、存疑原因，截图（裁剪、大小照旧）在挂的那一句下面', await until(() => printed2) && printed2.html.includes('完整字幕')
+      && printed2.html.includes(S.doc.title) && printed2.cues.length === psegs.length && printed2.cues[0].startsWith(`[${fmt(psegs[0].start)}]`)
+      && printed2.cues[2].includes('第三句的译文') && printed2.cues[3].includes('〔存疑：听不清〕') && printed2.figAfter === printed2.cues[1]
+      && printed2.w === '300px' && printed2.img === 1, printed2);
+    await until(() => !$('#printArea'));
+    ok('字幕的「带时间」开关默认开', $('#optPrintTsSubs').checked);
+    $('#optPrintTsSubs').click(); printed2 = null;
+    $('#btnSubPrint').click();
+    ok('字幕关掉「带时间」：每句前面不印时间', await until(() => printed2) && !printed2.html.includes('class="print-t"') && printed2.cues[0].startsWith(psegs[0].text)
+      && S.settings.print_ts_subs === false, printed2 && printed2.cues.slice(0, 2));
+    $('#optPrintTsSubs').click();
+    window.systemPrint = keepSys;
+    await until(() => !$('#printArea'));
+    // 导出 PDF（2026-11-02，单独的按钮）：不弹打印窗口，后台按打印的样子直接存（测试存在测试数据的缓存文件夹，run_ui_test 全部通过后整个删掉）
+    const cacheDir = decodeURI(new URL(await frameUrl(psegs[0].start, false)).pathname).replace(/^\//, '').replace(/\/frames\/.*$/, '');
+    const keepAsk = window.askPdfPath; window.askPdfPath = async () => cacheDir + '/打印测试.pdf';
+    $('#btnSubPdf').click();
+    ok('字幕「导出 PDF」：直接存好，提示可以打开，打印内容收掉', await until(() => [...document.querySelectorAll('.toast')].some(t => t.textContent.includes('已导出 PDF')), 30000)
+      && await until(() => !$('#printArea') && !document.body.classList.contains('printing')), [...document.querySelectorAll('.toast')].map(t => t.textContent));
+    window.askPdfPath = async () => cacheDir + '/打印测试2.pdf';
+    $('#btnPdf').click();
+    ok('课程重点「导出 PDF」也能直接存', await until(() => [...document.querySelectorAll('.toast')].some(t => t.textContent.includes('打印测试2.pdf')), 30000));
+    window.askPdfPath = keepAsk;
+    psegs[2].tr = keepTr; S.doc.sub_shots = []; S.doc.doubts = []; renderCues();
+    document.querySelectorAll('.ai-tabs .tab')[1].click();
+    ok('「打印」「导出 PDF」只在课程重点页显示', $('#btnPrint').hidden && $('#btnPdf').hidden);
+    document.querySelectorAll('.ai-tabs .tab')[0].click();
+    // 每条重点旁边的小工具（2026-11-02）：鼠标移上去出现按钮；只改那几行原文；Ctrl+Z 一步步退回
+    const tsum = '## 一、甲\n\n- 甲一 [00:10]\n  - 甲一的小点\n- 甲二\n\n## 二、乙\n\n- 乙一。[01:00]\n- 乙二';
+    S.doc.summary = tsum; S.sumUndo = []; renderSummary();
+    const blk = l => document.querySelector(`#summaryBox [data-l^="${l}-"]`);
+    const hover = l => blk(l).dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    const tool = a => document.querySelector(`#sumTools [data-st="${a}"]`);
+    const ctrlZ = () => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
+    ok('课程重点每一块记着原文行号，缩进的小点显示成第二级', blk(2).tagName === 'LI' && blk(3).classList.contains('lvl-1') && blk(6).tagName === 'H2');
+    hover(4);
+    ok('鼠标移到列表项上：出现改、上移、下移、合并、拆分、删除，只有图标；加一条、缩进改成按键，没有按钮（2026-11-02）', !$('#sumTools').hidden
+      && ['edit', 'up', 'down', 'merge', 'split', 'del'].every(a => tool(a) && tool(a).querySelector('svg') && !tool(a).textContent.trim() && tool(a).title)
+      && !tool('add') && !tool('indent') && !tool('outdent'));
+    hover(6);
+    ok('小标题上没有合并、拆分、缩进', tool('edit') && tool('up') && !tool('merge') && !tool('split') && !tool('indent'));
+    hover(9); tool('merge').click();
+    ok('并到上一条：乙一以出处时间结尾，直接接上', S.doc.summary.includes('- 乙一。[01:00]乙二') && !S.doc.summary.includes('- 乙二'), S.doc.summary);
+    ctrlZ();
+    ok('Ctrl+Z 撤销课程重点的修改', S.doc.summary === tsum, S.doc.summary);
+    hover(4); tool('up').click();
+    ok('上移：甲二和甲一（连同小点）换位置，不多出空行', S.doc.summary.includes('- 甲二\n- 甲一 [00:10]\n  - 甲一的小点'), S.doc.summary);
+    S.doc.summary = tsum; renderSummary();
+    hover(8); tool('up').click();
+    ok('一级条目上移可以跨过小标题，挪到上一节最后', /- 甲二\n+- 乙一。\[01:00\]\n+## 二、乙\n+- 乙二/.test(S.doc.summary), S.doc.summary);
+    S.doc.summary = tsum; renderSummary();
+    const keyOn = (el, key, shift) => el.dispatchEvent(new KeyboardEvent('keydown', { key, shiftKey: !!shift, bubbles: true }));
+    hover(4); keyOn(document.body, 'Tab');
+    ok('鼠标停在一条上按 Tab：缩进，变成上一条下面的小点（缩进两格）', S.doc.summary.includes('  - 甲一的小点\n  - 甲二'), S.doc.summary);
+    hover(6); tool('del').click();
+    ok('删除小标题：只删标题，内容留着', !S.doc.summary.includes('## 二、乙') && S.doc.summary.includes('- 乙一') && [...document.querySelectorAll('.toast')].some(t => t.textContent.includes('撤销')), S.doc.summary);
+    ctrlZ(); ctrlZ();
+    ok('连续 Ctrl+Z 退回两步', S.doc.summary === tsum, S.doc.summary);
+    hover(4); tool('edit').click();
+    let sta = $('#summaryBox .sum-edit textarea');
+    ok('点「改」：只把这一条变成输入框，里面是这一条的文字', sta && sta.value === '甲二' && $('#sumTools').hidden);
+    sta.value = '甲二改过\n甲三是新的一条';
+    keyOn(sta, 'Enter');
+    ok('改完按 Enter 保存（换行写的那一行变成新的一条），并在下面开一条新的', S.doc.summary.includes('- 甲二改过\n- 甲三是新的一条') && $('#summaryBox .sum-edit textarea') && $('#summaryBox .sum-edit textarea').value === '', S.doc.summary);
+    keyOn($('#summaryBox .sum-edit textarea'), 'Enter');
+    ok('新的那一条没写字再按 Enter：结束，不留空条目', !$('#summaryBox .sum-edit') && !S.doc.summary.includes('…') && S.doc.summary.includes('- 甲三是新的一条\n\n## 二、乙'), S.doc.summary);
+    S.doc.summary = tsum; renderSummary();
+    hover(4); tool('split').click();
+    sta = $('#summaryBox .sum-edit textarea'); sta.value = '前半句后半句'; sta.selectionStart = sta.selectionEnd = 3;
+    $('#summaryBox .sum-edit [data-se="split"]').click();
+    ok('拆分：在光标处拆成两条', S.doc.summary.includes('- 前半句\n- 后半句'), S.doc.summary);
+    S.doc.summary = tsum; renderSummary();
+    hover(2); tool('edit').click();
+    keyOn($('#summaryBox .sum-edit textarea'), 'Enter');
+    sta = $('#summaryBox .sum-edit textarea');
+    ok('改甲一时按 Enter：在甲一（连同小点）下面空出一条，直接输入', sta && sta.value === '');
+    sta.value = '新加的一条'; keyOn(sta, 'Tab');
+    sta = $('#summaryBox .sum-edit textarea');
+    ok('新的一条里按 Tab：缩进成甲一的小点，编辑框还开着、字还在', sta && sta.value === '新加的一条' && S.doc.summary.includes('  - 甲一的小点\n  - 新加的一条\n- 甲二'), S.doc.summary);
+    keyOn(sta, 'Enter');
+    sta = $('#summaryBox .sum-edit textarea');
+    ok('再按 Enter：保存，并在同一级再开一条', sta && sta.value === '' && S.doc.summary.includes('  - 新加的一条\n  - …'), S.doc.summary);
+    keyOn(sta, 'Tab', true);
+    sta = $('#summaryBox .sum-edit textarea');
+    ok('按 Shift+Tab：取消缩进，回到一级', sta && /\n- …\n- 甲二/.test(S.doc.summary), S.doc.summary);
+    keyOn(sta, 'Escape');
+    ok('新的一条什么都没写按 Esc：当没加过', S.doc.summary.includes('  - 甲一的小点\n  - 新加的一条\n- 甲二') && !S.doc.summary.includes('…') && !$('#summaryBox .sum-edit'), S.doc.summary);
+    // 课程重点底部按钮、「已校对」带文字（2026-11-02 用户：底部按钮少、不常用，带字更直观）；标题栏其他图标按钮都有一句话的提示
+    ok('课程重点底部按钮带文字，「已校对」是带文字的开关', $('#btnReview').textContent.trim() === '查漏补缺' && $('#btnCopySummary').textContent.trim() === '复制'
+      && $('#btnSumShot').textContent.includes('插入截图') && $('#optReviewed').closest('label').classList.contains('switch') && $('#optReviewed').closest('label').textContent.includes('已校对'));
+    ok('标题栏的图标按钮都有提示，字幕导出 PDF 的提示是一句话', [...document.querySelectorAll('.sub-head .btn.icon-only, .ai-tabs .btn.icon-only')].every(b => b.title)
+      && $('#btnSubPdf').title === '把字幕输出为PDF');
+    $('#btnHelp').click();
+    ok('字幕区的「?」：只显示字幕区的说明（没有左边目录），快捷键单独列出', $('#dlgHelp').open && $('#dlgHelp').classList.contains('help-focus')
+      && !$('#helpBody [data-h="area-subs"]').hidden && $$('#helpBody section:not([hidden])').length === 1 && getComputedStyle($('#helpNav')).display === 'none'
+      && $('#helpBody [data-h="area-subs"] .help-keys'));
+    const subRows = $$('#helpBody [data-h="area-subs"] .help-btns tr');
+    ok('字幕区说明里有按钮表：从界面上的按钮生成（图标 + 提示），每句的小工具也列出', subRows.length >= 12
+      && subRows.some(r => r.textContent.includes('把字幕输出为PDF') && r.querySelector('svg')) && subRows.some(r => r.textContent.includes('与下一句合并'))
+      && subRows.some(r => r.textContent.includes('已校对')), subRows.map(r => r.textContent));
+    $('#helpClose').click();
+    $('#btnAiHelp').click();
+    ok('课程重点区的「?」：只显示课程重点区的说明，Enter / Tab / Shift+Tab 写在快捷键里', $('#dlgHelp').open && !$('#helpBody [data-h="area-sum"]').hidden
+      && /Enter[\s\S]*Tab[\s\S]*Shift/.test($('#helpBody [data-h="area-sum"] .help-keys').textContent));
+    const sumHelp = $('#helpBody [data-h="area-sum"]'), sumRows = $$('.help-btns tr', sumHelp);
+    ok('课程重点区说明：有三个标签页的说明和按钮表', ['课程重点', 'AI 对话', '画面'].every(t => [...$$('li > b', sumHelp)].some(b => b.textContent === t))
+      && sumRows.some(r => r.textContent.includes('查漏补缺')) && sumRows.some(r => r.textContent.includes('把课程重点输出为PDF')) && sumRows.some(r => r.textContent.includes('并到上一条'))
+      && sumRows.some(r => r.textContent.includes('找插图')), sumRows.map(r => r.textContent));
+    $('#helpFull').click();
+    ok('点「查看完整使用说明」：换成整个软件的说明，左边有目录', !$('#dlgHelp').classList.contains('help-focus') && getComputedStyle($('#helpNav')).display !== 'none' && !$('#helpBody [data-h="start"]').hidden);
+    $('#helpClose').click();
+    $('#btnHelpTop').click();
+    ok('右上角的「?」：整个软件的说明', $('#dlgHelp').open && !$('#dlgHelp').classList.contains('help-focus'));
+    // 总说明按界面版块排（2026-11-02）：目录分「开始 / 按界面版块 / 专题」，每个目录项都有对应的一节，分区图和「见某某」能跳过去
+    const navKeys = $$('#helpNav [data-h]').map(b => b.dataset.h);
+    ok('总说明的目录按版块分组，每一项都有对应的一节', ['开始', '按界面版块', '专题'].every(t => $$('#helpNav .nav-label').some(l => l.textContent === t))
+      && ['top', 'library', 'video', 'area-subs', 'area-sum', 'book', 'mentor', 'tts', 'export'].every(k => navKeys.includes(k))
+      && navKeys.every(k => $(`#helpBody section[data-h="${k}"]`)) && $$('#helpBody [data-go]').every(a => navKeys.includes(a.dataset.go)), navKeys);
+    $('#helpBody .help-map [data-go="area-subs"]').click();
+    ok('点分区图里的「字幕区」：跳到字幕区那一节', !$('#helpBody [data-h="area-subs"]').hidden && $('#helpNav [data-h="area-subs"]').classList.contains('active'));
+    $('#helpNav [data-h="top"]').click();
+    const topRows = $$('#helpBody [data-h="top"] .help-btns tr');
+    ok('顶栏那一节有按钮表（生成字幕、一键整理、剪藏都在）', ['生成字幕', '一键整理', '剪藏', '保存'].every(t => topRows.some(r => r.textContent.includes(t))), topRows.map(r => r.textContent));
+    $('#helpNav [data-h="video"]').click();
+    const vRows = $$('#helpBody [data-h="video"] .help-btns tr');
+    ok('视频区那一节有开关和按钮表', ['字幕跟随', '单句循环', '隐藏视频'].every(t => vRows.some(r => r.textContent.includes(t))), vRows.map(r => r.textContent));
+    $('#helpClose').click();
+    $('#btnAiHelp').click();
+    $('#helpBody [data-h="area-sum"] [data-go="tts"]').click();
+    ok('只看一块时点「见朗读」：换成完整说明并跳过去', !$('#dlgHelp').classList.contains('help-focus') && !$('#helpBody [data-h="tts"]').hidden);
+    $('#helpClose').click();
+    $('#helpClose').click();
+    // 字幕每句右边的按钮排成一排（2026-11-02）
+    const ctools = [...document.querySelectorAll('#cues .cue')[0].querySelectorAll('.cue-tools button')];
+    document.querySelectorAll('#cues .cue')[0].querySelector('.cue-tools').style.display = 'grid';
+    ok('字幕每句的四个按钮排成一排', ctools.length === 4 && new Set(ctools.map(b => Math.round(b.getBoundingClientRect().top))).size === 1, ctools.map(b => b.getBoundingClientRect().top));
+    document.querySelectorAll('#cues .cue')[0].querySelector('.cue-tools').style.display = '';
+    S.doc.summary = sumKeep; delete S.doc.sum_shots; delete S.doc.fig_edits; renderSummary();
 
     // 查漏补缺按钮和覆盖率
     renderSummary();
@@ -539,16 +842,20 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('媒体库按实际层级显示：带序号的在前，子文件夹里也按序号', top && top.children.map(c => c.name).join('|') === '1、第一讲|资料|预告'
       && top.children[0].children.map(c => c.name).join('|') === '1、甲|2、乙', top && top.children.map(c => c.name));
     const headOf = name => [...document.querySelectorAll('#libBody [data-folder]')].find(h => h.querySelector('.lib-gname').textContent === name);
-    ok('子文件夹显示成可以展开的一层，往里缩进', !!headOf('资料') && getComputedStyle(headOf('资料')).getPropertyValue('--depth').trim() === '1');
+    ok('「课程」里不显示只有书的文件夹', !headOf('资料') && !!headOf('1、第一讲'));
+    switchView('book');
+    ok('子文件夹显示成可以展开的一层，往里缩进（「书籍」里只显示有书的文件夹）', !!headOf('资料') && getComputedStyle(headOf('资料')).getPropertyValue('--depth').trim() === '1'
+      && !headOf('1、第一讲') && !document.querySelector('#libBody [data-fname="预告.avi"]'));
     headOf('资料').click();
     ok('点文件夹收起，记住', headOf('资料').parentElement.classList.contains('collapsed') && libNode(top.path + '\\资料').collapsed);
     headOf('资料').click();
+    switchView('course');
     const sib = () => siblings0(top.path).map(el => el.dataset.fname || el.dataset.drag.split('\\').pop());
     const elOf = name => siblings0(top.path).find(el => (el.dataset.fname || '') === name);
-    let list = siblings0(top.path).filter(el => el !== elOf('预告.avi'));
-    list.splice(list.indexOf(elOf('资料')), 0, elOf('预告.avi'));
+    let list = [elOf('预告.avi'), elOf('1、第一讲')];
     await libReorder({ el: elOf('预告.avi'), path: elOf('预告.avi').dataset.drag, parent: top.path }, list);
-    ok('拖动没序号的：放到哪里就排在哪里', await until(() => sib().join('|') === '1、第一讲|预告.avi|资料'), sib());
+    ok('拖动没序号的：放到哪里就排在哪里；这一层看不见的书（「资料」）不丢', await until(() => sib().join('|') === '预告.avi|1、第一讲')
+      && libNode(top.path).children.some(c => c.name === '资料'), [sib(), libNode(top.path).children.map(c => c.name)]);
     const origPrompt = window.prompt;
     window.prompt = () => null;  // 提示改名时不改
     const inner = top.path + '\\1、第一讲';
@@ -562,9 +869,12 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     window.prompt = origPrompt;
     const isShut = name => headOf(name).parentElement.classList.contains('collapsed');
     const topName = top.name;
+    switchView('book');
     headOf('资料').click();  // 先收起，再打开里面的书
+    switchView('course');
     await window.openPath(top.path + '\\资料\\补充.epub');
-    ok('打开电子书（EPUB）：分出章节，显示类型', await until(() => S.mode === 'book' && (S.doc.chapters || []).length === 2) && $('#bkInfo').textContent.includes('电子书（EPUB）'), $('#bkInfo').textContent);
+    ok('打开电子书（EPUB）：分出章节，显示类型；左上角自动切到「书籍」', await until(() => S.mode === 'book' && (S.doc.chapters || []).length === 2) && $('#bkInfo').textContent.includes('电子书（EPUB）')
+      && S.view === 'book' && document.querySelector('#libTabs .lib-tab.active').dataset.view === 'book', $('#bkInfo').textContent);
     ok('打开的课所在的文件夹自动展开', !isShut('资料') && !libNode(top.path + '\\资料').collapsed);
     headOf('资料').click();
     ok('正在看的课所在的文件夹也能收起', isShut('资料'));
@@ -573,11 +883,19 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     headOf(topName).click(); headOf('资料').click();
     ok('再点又展开', !isShut(topName) && !isShut('资料'));
     await window.openPath(keepPath);
+    ok('打开视频：左上角自动切回「课程」', S.view === 'course');
     await loadLibrary((await api('library_remove', { kind: 'folder', path: top.path })).groups);
 
     // 设置窗口
     openSettings('codex');
-    ok('设置：ChatGPT 账号登录', document.querySelector('#codexBox').textContent.includes('用 ChatGPT 账号登录'));
+    ok('设置：「关于与数据」在最上面（2026-11-02）', document.querySelector('#settingsNav button').dataset.sec === 'about');
+    ok('设置：最上面是「关于」标题，下面是「关于与数据」', document.querySelector('#settingsNav').firstElementChild.textContent === '关于' && document.querySelector('#settingsNav').firstElementChild.nextElementSibling.dataset.sec === 'about');
+    // 检查更新（2026-11-02）：有新版本时显示版本号、「去下载页」、更新说明（界面自测里后台返回假的 99.0.0，不联网）
+    ok('关于与数据：有「检查更新」和「打开软件时自动检查」', $('#btnCheckUpdate') && $('[data-k="update_auto"]') && $('[data-k="update_auto"]').checked);
+    $('#btnCheckUpdate').click();
+    ok('检查更新：有新版本时显示版本号、「去下载页」和更新说明', await until(() => $('#updateInfo').textContent.includes('有新版本 99.0.0'))
+      && !$('#btnGoDownload').hidden && !$('#updateNotes').hidden && $('#updateNotesBody').textContent.includes('测试用的更新说明'), $('#updateInfo').textContent);
+    ok('设置：ChatGPT 账号登录',document.querySelector('#codexBox').textContent.includes('用 ChatGPT 账号登录'));
     showSection('teachers');
     ok('设置：老师列表', document.querySelectorAll('#teacherList button').length === 2);
     document.querySelectorAll('#teacherList button')[0].click();
@@ -662,10 +980,9 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     document.querySelector('#helpNav [data-h="book"]').click();
     ok('使用说明可以切换章节', !document.querySelector('#helpBody section[data-h="book"]').hidden && document.querySelector('#helpBody section[data-h="start"]').hidden
       && document.querySelectorAll('#helpNav [data-h]').length >= 17);
-    document.querySelector('#helpNav [data-h="ui"]').click();
-    const uiHelp = document.querySelector('#helpBody section[data-h="ui"]');
-    ok('使用说明：有「界面上的标签和按钮」，讲到媒体库的未整理完、字幕的存疑标记、课程重点的按钮', !uiHelp.hidden
-      && ['未整理完', '重点待更新', '待更新剪藏', '整理中', '存疑', '绿色下划线', '查漏补缺', '字幕被引用'].every(w => uiHelp.textContent.includes(w)));
+    const helpText = k => document.querySelector(`#helpBody section[data-h="${k}"]`).textContent;
+    ok('使用说明按版块讲到：媒体库的标记、字幕的存疑和绿色下划线、课程重点的查漏和引用比例', ['未整理完', '重点待更新', '待更新剪藏', '整理中'].every(w => helpText('library').includes(w))
+      && ['存疑', '绿色下划线'].every(w => helpText('area-subs').includes(w)) && ['查漏补缺', '字幕被引用'].every(w => helpText('area-sum').includes(w)));
     document.querySelector('#helpClose').click();
     ok('关闭使用说明', !document.querySelector('#dlgHelp').open);
 
@@ -674,6 +991,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     await window.openPath(base + '测试书籍.pdf');
     ok('打开 PDF 进入书籍界面', await until(() => S.mode === 'book' && !document.querySelector('#bookMain').hidden && document.querySelector('#stageMain').hidden && document.body.classList.contains('mode-book')));
     ok('左边显示 PDF 原文', document.querySelector('#bookPdf').src.startsWith('file:') && !document.querySelector('#bookPdf').hidden);
+    ok('普通的电子版 PDF 不显示「识别文字（OCR）」（只有扫描书才有）', document.querySelector('#bkOcr').hidden);
     ok('视频相关按钮在书籍界面隐藏', getComputedStyle(document.querySelector('#btnTranscribe')).display === 'none');
     ok('列出章节和全书总览', document.querySelectorAll('#bkChapters .ch-row').length === 3 && document.querySelector('#bkChapters').textContent.includes('00、全书总览'));
     ok('认出「书上第 1 页是 PDF 第 3 页」', document.querySelector('#bkFirst').value === '3' && document.querySelector('#bkTitle').value === '测试书籍');
@@ -682,8 +1000,104 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     S.doc.chapters[0].md = '## 一、本章主题\n\n讲趋势。（P2）（PDF 第 5 页）';
     renderBook();
     ok('整理稿里的页码可以点', document.querySelectorAll('#bkView .pglink').length === 2);
+    // 原书图示在软件里直接显示（2026-10-30，以前要剪藏到 Obsidian 才变成图）
+    const mdKeep = S.doc.chapters[0].md;
+    S.doc.chapters[0].md = mdKeep + '\n\n![[原书图示 第4页 图1-1 三段结构 @0.1,0.3,0.9,0.6]]\n*原书图示｜图 1-1 三段结构（P2）*';
+    renderBook();
+    ok('整理笔记里的原书图示显示成图片，图的说明不朗读', await until(() => (document.querySelector('#bkView .book-fig img') || {}).src)
+      && !TTS.segments(document.querySelector('#bkView')).some(x => x.text.includes('第 4 页')), document.querySelector('#bkView').innerHTML.slice(-300));
+    S.doc.chapters[0].md = mdKeep; renderBook();
     document.querySelector('#bkView .pglink[data-p]').click();
     ok('点 P2 跳到 PDF 第 4 页', document.querySelector('#bookPdf').src.endsWith('#page=4'));
+    // 书籍朗读（2026-10-29）：和课程重点一样，页码不读；换一章朗读停下
+    const bkSegs = TTS.segments(document.querySelector('#bkView')).map(x => x.text);
+    // 书的文字设置（Aa）：整理笔记和原文文字版共用、和字幕分开；两列的「Aa」打开同一个菜单
+    const bkFs0 = parseFloat(getComputedStyle(document.querySelector('#bkView')).fontSize), cueFs0 = S.settings.font_size;
+    document.querySelector('#bookNote [data-bktx]').click();
+    ok('书的文字设置：整理笔记的「Aa」打开菜单', document.querySelector('#menuBookText').classList.contains('open') && document.querySelector('#bookNote').contains(document.querySelector('#menuBookText')));
+    document.querySelector('[data-btx="book_font_size:1"]').click();
+    document.querySelector('[data-btx="book_line_height:0.1"]').click();
+    ok('书的文字设置：字号、行距变大，字幕的字号不变', parseFloat(getComputedStyle(document.querySelector('#bkView')).fontSize) === bkFs0 + 1
+      && S.settings.book_line_height === 1.9 && S.settings.font_size === cueFs0 && document.querySelector('#bkTxSize').textContent === String(bkFs0 + 1));
+    document.querySelector('#bookLeft [data-bktx]').click();
+    ok('书的文字设置：原书的「Aa」打开同一个菜单', document.querySelector('#menuBookText').classList.contains('open') && document.querySelector('#bookLeft').contains(document.querySelector('#menuBookText')));
+    document.querySelector('#bkTxFont').value = 'kai'; document.querySelector('#bkTxFont').dispatchEvent(new Event('change'));
+    ok('书的文字设置：换字体，原文文字版也跟着变', getComputedStyle(document.querySelector('#bkSrcText')).fontFamily.includes('Kai'), getComputedStyle(document.querySelector('#bkSrcText')).fontFamily);
+    savePrefs({ book_font_size: 15, book_line_height: 1.8, book_font_family: 'yahei' }); closeMenus();
+    ok('朗读：英文句子自动换英文声音，中文句子夹英文词还是中文声音', TTS.isEnglish('Research is a craft.') && !TTS.isEnglish('研究是一门 craft。'));
+    ok('书籍朗读：按句子切，页码（P2、PDF 第 5 页）不读', bkSegs.join('|').includes('讲趋势') && !/P2|PDF|第 5 页/.test(bkSegs.join('')), bkSegs);
+    savePrefs({ tts_engine: 'system', tts_rate: 2 });
+    ok('书籍朗读：有内容时朗读按钮可以点', !document.querySelector('#bkTts').disabled);
+    document.querySelector('#bkTts').click();
+    ok('书籍朗读：点「朗读」读这一章，播放条出现在这一章上面', await until(() => TTS.active() && TTS.active().root === document.querySelector('#bkView')
+      && document.querySelector('.chapter-view .tts-bar')), TTS._state());
+    document.querySelector('#bkChapters .ch-row[data-ch="1"] span').click();
+    ok('书籍朗读：换一章，朗读停下；没整理的章朗读按钮是灰的', !TTS.active() && !document.querySelector('.tts-bar') && document.querySelector('#bkTts').disabled);
+    savePrefs({ tts_engine: 'edge', tts_rate: 1 });
+    // 整理时每做好一章，界面马上显示（bookLive）；分章这期间改过的不动
+    const c1 = S.doc.chapters[1];
+    bookLive([{ kind: 'chapter', i: 1, title: c1.title, start: c1.start, end: c1.end, md: '## 一、本章主题\n\n边整理边显示。', note: '提炼：12 字' },
+              { kind: 'chapter', i: 0, title: '别的章名', start: 1, end: 2, md: '不该写进来' }]);
+    ok('整理时每做好一章，列表马上标「已整理」、正在看的这一章马上显示', S.doc.chapters[1].md.includes('边整理边显示')
+      && document.querySelector('#bkChapters .ch-row[data-ch="1"] .ch-state.ok') && document.querySelector('#bkView').textContent.includes('边整理边显示')
+      && !document.querySelector('#bkTts').disabled && S.doc.chapters[0].md.includes('讲趋势'));
+    // 这本书正被后台 / 命令行整理时点「整理全部」：整个任务没开始就停了，要说清楚原因（2026-10-29 以前显示「整理好了 undefined 章」）
+    const busyOut = stepResult({ status: 'done', task: { status: 'failed', message: '失败', error: { error_code: 'busy', message: '这节课正在被另一个任务整理（测试，15:08 开始）' },
+      stages: [{ name: 'organize', status: 'pending' }] } }, 'organize');
+    ok('正被别的任务整理时：说清楚原因，不显示「undefined 章」', busyOut === null && toasts().some(t => t.includes('正在被另一个任务整理') && t.includes('等那边整理完'))
+      && !toasts().some(t => t.includes('undefined')), toasts());
+    S.doc.chapters[1].md = ''; renderBook();
+    document.querySelector('#bkChapters .ch-row[data-ch="0"] span').click();
+    // 三列（2026-10-29 用户要求）：原书、目录、整理笔记，各有标题和边框，能单独隐藏；放大；拖宽度；记在本机
+    const colName = k => document.querySelector(`#bookMain [data-col="${k}"] .bk-col-name`).textContent;
+    const box = sel => document.querySelector(sel).getBoundingClientRect();
+    ok('书：三列，标题是「原书」「目录」「整理笔记」，目录栏写着共几章、整理了几章', colName('src') === '原书' && colName('toc') === '目录' && colName('note') === '整理笔记'
+      && document.querySelector('#bkTocCount').textContent.includes('共 2 章 · 已整理 1'), document.querySelector('#bkTocCount').textContent);
+    const nb0 = box('#bookNote');
+    ok('书：三列从左到右排开，章节竖着排在目录这一列里', box('#bookLeft').right <= box('#bookToc').left + 1 && box('#bookToc').right <= nb0.left + 1
+      && [...document.querySelectorAll('#bkChapters .ch-row')].every(r => r.getBoundingClientRect().right <= box('#bookToc').right + 1), [box('#bookLeft'), box('#bookToc'), nb0]);
+    document.querySelector('#bookLeft [data-hide="src"]').click();
+    ok('书：隐藏原书，缩成一条竖条，笔记变宽，记在本机', document.querySelector('#bookLeft').classList.contains('collapsed') && box('#bookLeft').width < 40
+      && box('#bookNote').width > nb0.width + 100 && JSON.parse(localStorage.getItem('book-layout')).hide.src === true);
+    document.querySelector('#bookLeft .bk-rail').click();
+    ok('书：点竖条，原书恢复', !document.querySelector('#bookLeft').classList.contains('collapsed') && box('#bookLeft').width > 200);
+    document.querySelector('#bkZoom').click();
+    ok('书：放大，原书和目录收起，笔记占满', document.querySelector('#bookLeft').classList.contains('collapsed') && document.querySelector('#bookToc').classList.contains('collapsed')
+      && document.querySelector('#bkZoom').textContent === '还原' && box('#bookNote').width > nb0.width + 300);
+    document.querySelector('#bkZoom').click();
+    ok('书：还原', !document.querySelector('#bookLeft').classList.contains('collapsed') && !document.querySelector('#bookToc').classList.contains('collapsed') && document.querySelector('#bkZoom').textContent === '放大');
+    const sp2 = document.querySelector('#bookSplit2'), tl = box('#bookToc').left;
+    sp2.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: tl + 300, pointerId: 1 }));
+    sp2.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: tl + 230, pointerId: 1 }));
+    sp2.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: tl + 230, pointerId: 1 }));
+    ok('书：拖分隔线调目录宽度，记住', box('#bookToc').width < 290 && Math.abs(JSON.parse(localStorage.getItem('book-layout')).toc - box('#bookToc').width) < 3, box('#bookToc'));
+    bookLayout.toc = 300; bookLayout.src = 0; applyBookLayout(); saveBookLayout();
+    // 和原书目录一致（2026-10-29）：按部分分组显示；重新分章时起止页没变的保留整理好的内容
+    const kn = keepNotes([{ title: 'a', start: 1, end: 2, md: '甲' }, { title: 'b', start: 3, end: 9, md: '乙' }],
+      [{ title: 'a', start: 1, end: 2, part: 'P1' }, { title: 'b2', start: 3, end: 5, part: 'P1' }, { title: 'c', start: 6, end: 9 }]);
+    ok('重新分章：起止页没变的保留整理好的内容，变了的、新的要重新整理', kn.kept === 1 && kn.chapters[0].md === '甲' && kn.chapters[0].part === 'P1'
+      && !kn.chapters[1].md && !kn.chapters[2].md, kn);
+    const saveChs = S.doc.chapters.map(c => ({ ...c }));
+    S.doc.chapters.forEach(c => { c.part = '第一部分 测试'; }); renderBook();
+    ok('目录按原书的部分分组：部分标题下面缩进列出各篇', document.querySelectorAll('#bkChapters .ch-part').length === 1
+      && document.querySelector('#bkChapters .ch-part').textContent === '第一部分 测试' && document.querySelectorAll('#bkChapters .ch-row.in-part').length === S.doc.chapters.length);
+    S.doc.chapters = saveChs; renderBook();
+    // 原书：朗读原文（换成这一章的文字版，正在读的句子高亮，页码不读；关掉朗读换回 PDF）；也可以手动切文字版
+    savePrefs({ tts_engine: 'system', tts_rate: 2 });
+    document.querySelector('#bkSrcTts').click();
+    ok('原书：点「朗读原文」，换成这一章的文字版开始读，播放条在原书这一列', await until(() => TTS.active() && TTS.active().root === document.querySelector('#bkSrcText')
+      && document.querySelector('#bookPdf').hidden && !document.querySelector('#bkSrcText').hidden && document.querySelector('#bkSrcText .bpage') && document.querySelector('#bookLeft .tts-bar')), TTS._state());
+    const ref1 = document.querySelector('#bkSrcText .bref').textContent;
+    ok('原书：页码不读', ref1 && !TTS.segments(document.querySelector('#bkSrcText')).some(x => x.text.includes(ref1)), ref1);
+    ok('原书：朗读原文时，整理笔记的朗读按钮不亮', !document.querySelector('#bkTts').classList.contains('primary'));
+    document.querySelector('#bookLeft .tts-bar [data-t=close]').click();
+    ok('原书：关掉朗读，换回 PDF', !TTS.active() && !document.querySelector('#bookPdf').hidden && document.querySelector('#bkSrcText').hidden);
+    document.querySelector('#bkSrcMode [data-m=read]').click();
+    ok('原书：可以手动切到文字版', await until(() => !document.querySelector('#bkSrcText').hidden && document.querySelector('#bkSrcText .bpage'))
+      && document.querySelector('#bkSrcMode [data-m=read]').classList.contains('on') && document.querySelector('#bookPdf').hidden);
+    document.querySelector('#bkSrcMode [data-m=orig]').click();
+    ok('原书：切回 PDF', !document.querySelector('#bookPdf').hidden && document.querySelector('#bkSrcText').hidden);
+    savePrefs({ tts_engine: 'edge', tts_rate: 1 });
     const ti = document.querySelector('#bkChapters .ch-row[data-ch="0"] input[data-f="title"]');
     ti.value = '第一章 改过的名字'; ti.dispatchEvent(new Event('change', { bubbles: true }));
     ok('可以改章名', S.doc.chapters[0].title === '第一章 改过的名字');
@@ -693,6 +1107,27 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     await flushSave();
     const reb = await api('open', { path: base + '测试书籍.pdf' });
     ok('书籍整理结果保存到磁盘', reb.doc.chapters[0].title === '第一章 改过的名字' && reb.doc.shift === 3 && reb.doc.chapters[0].md.includes('讲趋势'));
+    // 书的 AI 对话（2026-10-29）：「笔记 / AI 对话」二选一；问这一章、问整本书各是一段对话；问答由后台存；回答里的页码能点
+    document.querySelector('#bkChapters .ch-row[data-ch="0"] span').click();
+    document.querySelector('#bkNoteMode [data-m="chat"]').click();
+    ok('书的 AI 对话：切到「AI 对话」，默认问这一章', !document.querySelector('#bkChat').hidden && document.querySelector('#bkView').hidden
+      && document.querySelector('#bkChatScope [data-s="chapter"]').classList.contains('on') && document.querySelector('#bkChatHint').textContent.includes('原文全文')
+      && getComputedStyle(document.querySelector('#bkEdit')).display === 'none');
+    const chKey = `ch:${S.doc.chapters[0].start}-${S.doc.chapters[0].end}`;
+    document.querySelector('#bkChips [data-q]').click();
+    ok('书的 AI 对话：点常用问题，回答显示出来', await until(() => !S.chatAbort && ((S.doc.book_chat || {})[chKey] || []).length === 2, 15000)
+      && document.querySelector('#bkChatBox .msg.assistant').textContent.includes('假 AI'), S.doc.book_chat);
+    ok('书的 AI 对话：问答由后台存进书的整理结果', (((await api('doc', { path: S.path })).doc.book_chat || {})[chKey] || []).length === 2);
+    document.querySelector('#bookPdf').src = S.viewer;
+    document.querySelector('#bkChatBox .msg.assistant .pglink').click();
+    ok('书的 AI 对话：点回答里的页码，原书跳到那一页', document.querySelector('#bookPdf').src.endsWith('#page=5'), document.querySelector('#bookPdf').src);
+    document.querySelector('#bkChatScope [data-s="book"]').click();
+    ok('书的 AI 对话：切到问整本书，是另一段对话', document.querySelector('#bkChatHint').textContent.includes('全部章节') && !!document.querySelector('#bkChatBox .ai-empty'));
+    document.querySelector('#bkNoteMode [data-m="note"]').click();
+    ok('书的 AI 对话：切回笔记', document.querySelector('#bkChat').hidden && !document.querySelector('#bkView').hidden);
+    bkChatScope = 'chapter';
+    await api('book_chat_clear', { path: S.path, key: chKey });
+    await syncBookFromDisk();
     await window.openPath(base + '演示视频.mp4');
     ok('再打开视频回到视频界面', await until(() => S.mode === 'media' && !document.querySelector('#stageMain').hidden && document.querySelector('#bookMain').hidden && v.readyState >= 1 && !S.resumePending));
 

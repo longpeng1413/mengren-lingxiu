@@ -117,17 +117,28 @@ DEFAULTS = {
     'cue_gap': 9,
     'cue_width': 0,
     'font_family': 'yahei',
+    # 书的整理笔记、原文文字版的文字设置（2026-10-29 用户要求「像字幕一样能设」；和字幕分开记）
+    'book_font_size': 15,
+    'book_line_height': 1.8,
+    'book_gap': 8,
+    'book_width': 0,
+    'book_font_family': 'yahei',
     'split': 0.5,
     'sidebar': True,
     'lib_w': 270,
     'ai_dock': 'bottom',
     'ai_hidden': False,
+    'video_hidden': False,  # 课程界面隐藏视频（缩成一条，2026-11-02）
+    'subs_hidden': False,  # 课程界面隐藏字幕栏
     'ai_w': 440,
     'video_h': 0.55,
     'follow': True,
     'show_tr': True,
+    'print_ts_summary': False,  # 打印 / 导出 PDF 课程重点时带不带出处时间（2026-11-02：软件里点时间能跳转，纸上没用，默认不带）
+    'print_ts_subs': True,  # 打印 / 导出 PDF 字幕时带不带每句的时间（默认带）
     'tts_engine': 'edge',  # 朗读：edge 在线 / baidu 百度 / system 系统声音（2026-10-21）
     'tts_voice': 'zh-CN-XiaoxiaoNeural',
+    'tts_voice_en': 'en-US-AriaNeural',  # 英文句子用的 Edge 声音（2026-10-29，外文书朗读原文）
     'tts_sys_voice': '',
     'tts_rate': 1.0,
     'tts_hl': 'yellow',
@@ -141,6 +152,8 @@ DEFAULTS = {
     'auto_review': True,
     'auto_frames': False,  # 一键整理、后台整理默认找不找关键帧（插图）：灵修课一般不用，默认不找，勾选了照样找
     'close_to_tray': True,  # 点右上角 × 时收到右下角托盘，不退出
+    'update_auto': True,  # 打开软件时自动检查更新（每天最多一次，2026-11-02）
+    'update_checked': '',  # 上次自动检查更新的日期
     'recent': [],
 }
 

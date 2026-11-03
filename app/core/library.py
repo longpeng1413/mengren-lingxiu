@@ -119,7 +119,8 @@ def save(lib):
 def _status(path, positions, env=None):
     """一个文件在列表里要显示的状态：有没有字幕、剪藏过没有、看到哪里。
     给了 env（_scan_env）时还算出 pending：按一键整理默认的步骤还要做哪几步（用已经读出来的字幕文件，不多读文件）。"""
-    item = {'path': path, 'name': Path(path).stem, 'ext': Path(path).suffix.lower()[1:]}
+    item = {'path': path, 'name': Path(path).stem, 'ext': Path(path).suffix.lower()[1:],
+            'kind': 'book' if Path(path).suffix.lower() in LIB_EXT else 'media'}  # 左栏「书籍 / 课程」分开列（2026-10-29）
     d = docs.load(path)  # 没有自己的字幕文件时读猛人学习的（只读，剪藏记录已清掉）
     if d and d.get('kind') == 'book':
         chs = d.get('chapters') or []

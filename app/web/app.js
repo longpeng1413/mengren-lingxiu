@@ -11,7 +11,8 @@ const S = {
   active: -1, editing: null, userScrollAt: 0, undo: [], job: null,
   hits: [], hitPos: -1, chatAbort: null, lib: [], resumeAt: 0, resumePending: false, loopIdx: null, frameUrls: {},
 };
-const LAYOUT_KEYS = ['font_size', 'line_height', 'cue_gap', 'cue_width', 'font_family', 'split', 'sidebar', 'lib_w', 'ai_dock', 'ai_hidden', 'ai_w', 'video_h'];
+const LAYOUT_KEYS = ['font_size', 'line_height', 'cue_gap', 'cue_width', 'font_family', 'split', 'sidebar', 'lib_w', 'ai_dock', 'ai_hidden', 'ai_w', 'video_h',
+  'video_hidden', 'subs_hidden'];
 
 /* ---------------------------------------------------------------- 工具 ---- */
 async function api(name, body = {}) {
@@ -64,9 +65,12 @@ ${e.error && e.error.stack || ''}`));
 window.addEventListener('unhandledrejection', e => logToFile('error', '未处理的异步错误：' + (e.reason && (e.reason.stack || e.reason.message) || e.reason)));
 
 /* 简单 Markdown（AI 回答用），时间点可点击跳转 */
-function md(src) {
+/* opts.lines（课程重点用，2026-11-02）：每一块（标题、段落、列表项、表格、代码、图）带上 data-l="第几行-第几行"（原文的行号，从 0 数），
+   每条重点旁边的小工具靠它只改那几行。代码块换成占位时补上同样多的空行，行号才对得上 */
+function md(src, opts = {}) {
   const blocks = [];
-  src = String(src || '').replace(/```[\w-]*\n?([\s\S]*?)```/g, (_, c) => { blocks.push(c); return `\u0000${blocks.length - 1}\u0000`; });
+  src = String(src || '').replace(/```[\w-]*\n?([\s\S]*?)```/g, (all, c) => { blocks.push(c); return `\u0000${blocks.length - 1}\u0000` + '\n'.repeat((all.match(/\n/g) || []).length); });
+  const L = (a, b) => opts.lines ? ` data-l="${a}-${b ?? a}"` : '';
   const inline = t => esc(t)
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
@@ -74,18 +78,27 @@ function md(src) {
     .replace(/\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?/g, (m, ts) => {
       const t = parseTs(ts); return t == null ? m : `<a class="tslink" data-t="${t}">[${ts}]</a>`;
     });
-  const out = []; let list = null, para = [], table = null;
-  const flushPara = () => { if (para.length) { out.push('<p>' + para.map(inline).join('<br>') + '</p>'); para = []; } };
+  const out = []; let list = null, para = [], paraL = 0, table = null, tableL = 0;
+  const flushPara = () => { if (para.length) { out.push(`<p${L(paraL, paraL + para.length - 1)}>` + para.map(inline).join('<br>') + '</p>'); para = []; } };
   const cells = line => line.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
   const flushTable = () => {
     if (!table) return;
     const [head, ...rows] = table;
-    out.push('<table><thead><tr>' + head.map(c => `<th>${inline(c)}</th>`).join('') + '</tr></thead><tbody>' +
+    out.push(`<table${L(tableL, tableL + table.length)}><thead><tr>` + head.map(c => `<th>${inline(c)}</th>`).join('') + '</tr></thead><tbody>' +
       rows.map(r => '<tr>' + r.map(c => `<td>${inline(c)}</td>`).join('') + '</tr>').join('') + '</tbody></table>');
     table = null;
   };
   const lines = src.split('\n');
-  const flushList = () => { if (list) { out.push(`<${list.tag}${list.start > 1 ? ` start="${list.start}"` : ''}>` + list.items.map(i => `<li>${inline(i)}</li>`).join('') + `</${list.tag}>`); list = null; } };
+  const flushList = () => { if (list) { out.push(`<${list.tag}${list.start > 1 ? ` start="${list.start}"` : ''}>` + list.items.map(i => `<li${i.lvl ? ` class="lvl lvl-${Math.min(i.lvl, 4)}"` : ''}${L(i.l)}>${inline(i.t)}</li>`).join('') + `</${list.tag}>`); list = null; } };
+  // 缩进的小点（2026-11-02）：按前面空白的宽度算第几级（tab 算 4 个空格），显示时往右缩进
+  const indentW = s => s.replace(/\t/g, '    ').length;
+  const addItem = (tag, t, li, w, start) => {
+    if (!list || list.tag !== tag) { flushList(); list = { tag, items: [], start, stack: [] }; }
+    const st = list.stack;
+    while (st.length && w < st[st.length - 1]) st.pop();
+    if (!st.length || w > st[st.length - 1]) st.push(w);
+    list.items.push({ t, l: li, lvl: st.length - 1 });
+  };
   // 列表项之间空一行（AI 常这样写）仍是同一个列表：以前每条各成一个列表，编号全是「1.」（2026-10-21 用户截图）
   const sameListNext = li => { let k = li + 1; while (k < lines.length && !lines[k].trim()) k++;
     const nx = lines[k] || ''; return !!list && (list.tag === 'ol' ? /^\s*\d+[.)]\s+/.test(nx) : /^\s*[-*+]\s+/.test(nx)); };
@@ -94,15 +107,23 @@ function md(src) {
     let m;
     if (table && /^\s*\|/.test(line)) { table.push(cells(line)); continue; }
     if (table) flushTable();
-    if (/^\s*\|.*\|\s*$/.test(line) && /^\s*\|?\s*:?-{2,}/.test(lines[li + 1] || '')) { flushPara(); flushList(); table = [cells(line)]; li++; continue; }
-    if (/^\u0000\d+\u0000$/.test(line.trim())) { flushPara(); flushList(); out.push(`<pre><code>${esc(blocks[+line.trim().slice(1, -1)])}</code></pre>`); }
-    else if ((m = line.trim().match(/^!\[\[\s*画面\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*\]\]$/))) { flushPara(); flushList(); const t = parseTs(m[1]); out.push(`<figure class="shot-fig" data-ft="${t}"><img alt=""><figcaption><a class="tslink" data-t="${t}">[${m[1]}]</a> 画面</figcaption></figure>`); }
-    else if ((m = line.match(/^(#{1,6})\s+(.*)/))) { flushPara(); flushList(); const n = Math.min(4, m[1].length); out.push(`<h${n}>${inline(m[2])}</h${n}>`); }
-    else if ((m = line.match(/^\s*[-*+]\s+(.*)/))) { flushPara(); if (!list || list.tag !== 'ul') { flushList(); list = { tag: 'ul', items: [] }; } list.items.push(m[1]); }
-    else if ((m = line.match(/^\s*(\d+)[.)]\s+(.*)/))) { flushPara(); if (!list || list.tag !== 'ol') { flushList(); list = { tag: 'ol', items: [], start: +m[1] }; } list.items.push(m[2]); }
-    else if ((m = line.match(/^>\s?(.*)/))) { flushPara(); flushList(); out.push(`<blockquote>${inline(m[1])}</blockquote>`); }
+    if (/^\s*\|.*\|\s*$/.test(line) && /^\s*\|?\s*:?-{2,}/.test(lines[li + 1] || '')) { flushPara(); flushList(); table = [cells(line)]; tableL = li; li++; continue; }
+    if (/^\u0000\d+\u0000$/.test(line.trim())) {
+      flushPara(); flushList();
+      const k = +line.trim().slice(1, -1), n = (blocks[k].match(/\n/g) || []).length;
+      out.push(`<pre${L(li, li + n + 1)}><code>${esc(blocks[k])}</code></pre>`);
+    }
+    else if ((m = line.trim().match(/^!\[\[\s*原书图示\s*第\s*(\d{1,4})\s*页\s*([^@\]]*?)\s*(?:@\s*([\d.\s,，]+))?\s*\]\]$/))) {  // 书的整理笔记里的原书图示：软件里直接显示（hydrateBookFigs）
+      flushPara(); flushList();
+      out.push(`<figure class="book-fig"${L(li)} data-pn="${m[1]}" data-reg="${esc((m[3] || '').trim())}"><img alt="" title="点击看大图"><figcaption class="tts-skip">原书图示　第 ${m[1]} 页　${esc(m[2] || '')}</figcaption></figure>`);
+    }
+    else if ((m = line.trim().match(/^!\[\[\s*画面\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*\]\]$/))) { flushPara(); flushList(); const t = parseTs(m[1]); out.push(`<figure class="shot-fig"${L(li)} data-ft="${t}"><img alt=""><figcaption><a class="tslink" data-t="${t}">[${m[1]}]</a> 画面</figcaption></figure>`); }
+    else if ((m = line.match(/^(#{1,6})\s+(.*)/))) { flushPara(); flushList(); const n = Math.min(4, m[1].length); out.push(`<h${n}${L(li)}>${inline(m[2])}</h${n}>`); }
+    else if ((m = line.match(/^(\s*)[-*+]\s+(.*)/))) { flushPara(); addItem('ul', m[2], li, indentW(m[1])); }
+    else if ((m = line.match(/^(\s*)(\d+)[.)]\s+(.*)/))) { flushPara(); addItem('ol', m[3], li, indentW(m[1]), +m[2]); }
+    else if ((m = line.match(/^>\s?(.*)/))) { flushPara(); flushList(); out.push(`<blockquote${L(li)}>${inline(m[1])}</blockquote>`); }
     else if (!line.trim()) { flushPara(); if (!sameListNext(li)) flushList(); }
-    else { flushList(); para.push(line); }
+    else { flushList(); if (!para.length) paraL = li; para.push(line); }
   }
   flushPara(); flushList(); flushTable();
   return out.join('');
@@ -140,8 +161,22 @@ function applyLook() {
   $('#txWidth').textContent = s.cue_width ? s.cue_width : '全宽';
   $('#txFont').value = s.font_family || 'yahei';
   $('#txTheme').value = s.theme;
+  // 书的整理笔记、原文文字版（和字幕分开设）
+  root.setProperty('--bk-size', (s.book_font_size || 15) + 'px');
+  root.setProperty('--bk-line', s.book_line_height || 1.8);
+  root.setProperty('--bk-gap', (s.book_gap ?? 8) + 'px');
+  root.setProperty('--bk-width', s.book_width ? s.book_width + 'px' : 'none');
+  root.setProperty('--bk-font', FONTS[s.book_font_family] || FONTS.yahei);
+  $('#bkTxSize').textContent = s.book_font_size || 15;
+  $('#bkTxLine').textContent = (+(s.book_line_height || 1.8)).toFixed(1);
+  $('#bkTxGap').textContent = s.book_gap ?? 8;
+  $('#bkTxWidth').textContent = s.book_width ? s.book_width : '全宽';
+  $('#bkTxFont').value = s.book_font_family || 'yahei';
+  $('#bkTxTheme').value = s.theme;
   $('#optFollow').checked = !!s.follow;
   $('#optTr').checked = !!s.show_tr;
+  $('#optPrintTsSum').checked = !!s.print_ts_summary;
+  $('#optPrintTsSubs').checked = s.print_ts_subs !== false;
   $('#optOverlay').checked = !!s.overlay;
   $('#cues').classList.toggle('hide-tr', !s.show_tr);
   $('#overlay').hidden = !s.overlay;
@@ -156,20 +191,35 @@ function applyLayout() {
   $('#library').style.width = (s.lib_w || 270) + 'px';
   $('#left').style.width = Math.round((s.split || 0.5) * 100) + '%';
   const main = $('#stageMain'), panel = $('#aiPanel');
-  const side = s.ai_dock === 'side', hidden = !!s.ai_hidden;
-  main.classList.toggle('ai-side', side && !hidden);
-  main.classList.toggle('ai-hidden', hidden);
-  const target = hidden ? null : (side ? $('#aiDockSide') : $('#aiDockBottom'));
-  if (target && panel.parentElement !== target) target.appendChild(panel);
-  if (!target && panel.parentElement !== document.body) document.body.appendChild(panel);
-  panel.classList.toggle('docked', !!target);
+  // 视频、字幕、AI 区各自能隐藏（2026-11-02，和书籍一样）：隐藏的缩成一条，点它恢复。ai_hidden 以前是让 AI 区整个消失，现在也是缩成一条
+  const side = s.ai_dock === 'side', hide = { video: !!s.video_hidden, subs: !!s.subs_hidden, ai: !!s.ai_hidden };
+  const leftRail = hide.video && (side || hide.ai);  // 左边整列都隐藏了：缩成竖条
+  main.classList.toggle('ai-side', side);
+  main.classList.toggle('ai-collapsed', hide.ai);
+  main.classList.toggle('video-hidden', hide.video);
+  main.classList.toggle('subs-hidden', hide.subs);
+  main.classList.toggle('left-rail', leftRail);
+  const target = side ? $('#aiDockSide') : $('#aiDockBottom');
+  if (panel.parentElement !== target) target.appendChild(panel);
+  panel.classList.add('docked');
+  $('#playerArea').classList.toggle('pane-collapsed', hide.video);
+  $('#right').classList.toggle('pane-collapsed', hide.subs);
+  panel.classList.toggle('pane-collapsed', hide.ai);
   const stageW = $('#stage').getBoundingClientRect().width || 1200;
   const aiW = clamp(s.ai_w || 440, 280, Math.max(300, stageW * 0.65));
   $('#aiDockSide').style.width = aiW + 'px';
-  // AI 在右侧时，视频和字幕按剩下的宽度分配比例
-  if (side && !hidden) $('#left').style.width = `calc((100% - ${Math.round(aiW + 20)}px) * ${(s.split || 0.5).toFixed(3)})`;
-  $('#playerArea').style.flex = (!side && !hidden && !$('#playerWrap').classList.contains('audio')) ? `0 0 ${Math.round((s.video_h || 0.55) * 100)}%` : '';
-  $('#btnShowAi').hidden = !hidden;
+  // AI 在右侧时，视频和字幕按剩下的宽度分配比例（隐藏了的那块由样式定宽度）
+  if (side && !hide.ai) $('#left').style.width = `calc((100% - ${Math.round(aiW + 20)}px) * ${(s.split || 0.5).toFixed(3)})`;
+  $('#playerArea').style.flex = (!side && !hide.ai && !hide.video && !$('#playerWrap').classList.contains('audio')) ? `0 0 ${Math.round((s.video_h || 0.55) * 100)}%` : '';
+  // 朗读的那一块被隐藏了：停下
+  const t = typeof TTS !== 'undefined' && TTS.active();
+  if (t && t.root && t.root.closest('.pane-collapsed')) TTS.stop();
+}
+const PANE_KEY = { video: 'video_hidden', subs: 'subs_hidden', ai: 'ai_hidden' };
+function setPane(k, hidden) {
+  const s = S.settings;
+  if (hidden && Object.entries(PANE_KEY).every(([x, key]) => x === k || s[key])) return toast('至少要留一块，不能全部隐藏');
+  savePrefs({ [PANE_KEY[k]]: hidden });
 }
 
 let prefTimer = null, prefPatch = {};
@@ -249,7 +299,7 @@ function itemHTML(it, depth = 0, parent = '') {
   if (pendingTag(it)) tags.push(pendingTag(it));
   if (bgTag(it)) tags.push(bgTag(it));
   if (it.reviewed) tags.push('<span class="tag ok">已校对</span>');
-  if (it.clipped) tags.push(it.stale ? '<span class="tag warn" title="剪藏后在软件里又改过字幕或课程重点。再点一次「剪藏」，Obsidian 里的笔记才会更新">待更新剪藏</span>'
+  if (it.clipped) tags.push(it.stale ? '<span class="tag warn" title="剪藏后又改过，再剪藏一次才会更新 Obsidian">待更新剪藏</span>'
     : '<span class="tag" title="Obsidian 里的笔记和软件里的内容一致">已剪藏</span>');
   if (it.pos && it.duration) tags.push(`<span>看到 ${fmt(it.pos)}</span>`);
   const pct = it.pos && it.duration ? Math.min(100, it.pos / it.duration * 100) : 0;
@@ -260,11 +310,23 @@ function itemHTML(it, depth = 0, parent = '') {
     ${tags.length ? `<div class="lib-meta">${tags.join('')}</div>` : ''}
     ${pct ? `<div class="lib-prog"><i style="width:${pct.toFixed(1)}%"></i></div>` : ''}</div>`;
 }
+/* 左上角「书籍」只列书和文档，「课程」只列音视频（2026-10-29）；文件夹里没有这一类的不显示（空文件夹、找不到的文件夹两边都显示） */
+const BOOK_FILE_RE = /\.(pdf|docx?|epub|mobi|azw3?|pptx?|txt|md)$/i;
+const libKind = () => (S.view === 'book' ? 'book' : 'media');
+const kindOf = it => it.kind || (BOOK_FILE_RE.test(it.path) ? 'book' : 'media');
+function kindCount(n) {
+  if (n.type !== 'folder') return kindOf(n) === libKind() ? 1 : 0;
+  return n.children.reduce((s, c) => s + kindCount(c), 0);
+}
 /* 搜索时：文件名或它所在的文件夹名包含关键词就显示 */
 function libMatch(n, q, chain) {
-  if (!q) return true;
-  if (n.type === 'folder') return (chain + ' ' + n.name).toLowerCase().includes(q) || n.children.some(c => libMatch(c, q, chain + ' ' + n.name));
-  return (chain + ' ' + n.name).toLowerCase().includes(q);
+  if (n.type === 'folder') {
+    if (!kindCount(n) && !(n.top && (!n.count || n.missing))) return false;
+    if (!q) return true;
+    return (chain + ' ' + n.name).toLowerCase().includes(q) || n.children.some(c => libMatch(c, q, chain + ' ' + n.name));
+  }
+  if (kindOf(n) !== libKind()) return false;
+  return !q || (chain + ' ' + n.name).toLowerCase().includes(q);
 }
 function folderHTML(n, depth, parent, q, chain) {
   const kids = n.children.filter(c => libMatch(c, q, chain + ' ' + n.name));
@@ -275,16 +337,16 @@ function folderHTML(n, depth, parent, q, chain) {
       data-fname="${esc(n.fname || '')}" data-num="${n.num ? 1 : 0}" style="--depth:${depth}" title="${esc(n.path)}">
       <svg class="caret" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
       <span class="lib-gname">${esc(n.name)}</span>
-      ${t ? `<span class="lib-gteacher" title="这个文件夹（和没单独绑定的下层文件夹）里的课用这位老师的术语表">${esc(t.name)}</span>` : ''}
-      ${n.summary === 'on' ? '<span class="lib-gteacher" title="猛人灵修默认不写课程重点；这个文件夹（和没单独设置的下层文件夹）里的课照常写">写重点</span>'
-        : n.summary === 'off' ? '<span class="lib-gteacher" title="这个文件夹（和没单独设置的下层文件夹）里的课不写课程重点：一键整理默认不勾，后台整理和命令行跳过">不写重点</span>'
+      ${t ? `<span class="lib-gteacher" title="这个文件夹的课用这位老师的术语表">${esc(t.name)}</span>` : ''}
+      ${n.summary === 'on' ? '<span class="lib-gteacher" title="这个文件夹的课照常写课程重点">写重点</span>'
+        : n.summary === 'off' ? '<span class="lib-gteacher" title="这个文件夹的课不写课程重点">不写重点</span>'
     : n.summary === 'on' ? '<span class="lib-gteacher" title="上层设了不写课程重点，这个文件夹单独设成要写">写重点</span>' : ''}
-      <span class="lib-gcount">${n.count}</span>
+      <span class="lib-gcount" title="${libKind() === 'book' ? '这里面的书和文档' : '这里面的视频和音频'}">${kindCount(n)}</span>
       <button class="lib-more" data-more="${esc(n.path)}" title="更多">⋯</button>
     </div>
     ${n.missing ? `<div class="lib-missing" style="--depth:${depth}">找不到这个文件夹，可能被移动或删除了</div>` : ''}
     <div class="lib-items">${kids.map(c => nodeHTML(c, depth + 1, n.path, q, chain + ' ' + n.name)).join('')
-      || (n.missing ? '' : `<div class="lib-missing muted" style="--depth:${depth + 1}">没有音视频和文档</div>`)}</div>
+      || (n.missing ? '' : `<div class="lib-missing muted" style="--depth:${depth + 1}">${n.count ? (libKind() === 'book' ? '这里没有书和文档' : '这里没有视频和音频') : '没有音视频和文档'}</div>`)}</div>
   </div>`;
 }
 function nodeHTML(n, depth, parent, q, chain) {
@@ -316,7 +378,10 @@ function renderLibrary() {
     return;
   }
   const scroll = body.scrollTop;
-  body.innerHTML = S.lib.filter(n => libMatch(n, q, '')).map(n => nodeHTML(n, 0, '', q, '')).join('');
+  body.innerHTML = S.lib.filter(n => libMatch(n, q, '')).map(n => nodeHTML(n, 0, '', q, '')).join('')
+    || `<div class="lib-empty">${q ? '没有找到。' : libKind() === 'book'
+      ? '媒体库里还没有书。<br>加进来的文件夹里的 PDF、Word、EPUB、MOBI、PPT 会列在这里；也可以点上面的 <b>＋文件</b> 单独加一本。'
+      : '媒体库里还没有视频、音频。<br>加进来的文件夹里的视频、音频会列在这里。'}</div>`;
   body.scrollTop = scroll;
 }
 function patchLib(path, patch, later) {
@@ -348,12 +413,12 @@ function folderMenu(path, x, y) {
   const n = libNode(path); if (!n) return;
   showCtx(x, y, `<div class="menu-label">这个文件夹的老师 / 术语表</div>
     <select data-a="teacher">${teacherOptions(n.teacher, n.top ? '不指定' : '不指定（沿用上一层）')}</select>
-    <button class="menu-item" data-a="bgall" title="定好一套整理规则（做哪几步、老师、豆包模型和账号），把这个文件夹（含子文件夹）里还没整理完的课一节一节排进后台整理">整个文件夹排进后台整理…</button>
-    <button class="menu-item" data-a="nosum" title="猛人灵修默认不写课程重点（灵修课只识别、校对，直接蒸馏老师）：一键整理默认不勾「生成课程重点」，后台整理和命令行跳过课程重点和查漏补缺。点一下取消勾选，这个文件夹的课就照常写。下层文件夹沿用，也能单独改">${n.no_summary ? '✓ ' : ''}这里的课不写课程重点</button>
+    <button class="menu-item" data-a="bgall" title="定好整理规则，把这个文件夹里没整理完的课排进后台整理">整个文件夹排进后台整理…</button>
+    <button class="menu-item" data-a="nosum" title="这里的课只识别、校对，不写课程重点（猛人灵修默认这样，下层沿用）">${n.no_summary ? '✓ ' : ''}这里的课不写课程重点</button>
     <button class="menu-item" data-a="rename">重命名…</button>
     <button class="menu-item" data-a="rescan">重新扫描</button>
     <button class="menu-item" data-a="reveal">在资源管理器中打开</button>
-    <button class="menu-item" data-a="distill" title="AI 逐份提取观点、原话、比喻和故事、问答，再合并成课程蒸馏、写老师画像，写进 Obsidian 的「灵修老师」；做完能在老师工作台里和这位老师对话">用这个文件夹的课和文章蒸馏一位老师…</button>
+    <button class="menu-item" data-a="distill" title="用这里的课和文章蒸馏一位老师（存进 Obsidian「灵修老师」，能和他对话）">用这个文件夹的课和文章蒸馏一位老师…</button>
     ${n.top ? '<button class="menu-item danger" data-a="remove">从媒体库移除（不删除文件）</button>' : ''}`, m => {
     $('[data-a=distill]', m).onclick = () => { m.hidden = true; switchView('mentor'); openDistill({ folder: n.path, name: n.name }); };
     $('[data-a=teacher]', m).onchange = async e => {
@@ -380,7 +445,7 @@ function folderMenu(path, x, y) {
 function itemMenu(path, x, y) {
   const n = libNode(path); if (!n) return;
   showCtx(x, y, `<button class="menu-item" data-a="open">打开</button>
-    ${bgOf(path) ? '' : '<button class="menu-item" data-a="bg" title="按一键整理默认的步骤，只做还没做完的；排在后台一节一节整理，不影响你看别的课">排进后台整理</button>'}
+    ${bgOf(path) ? '' : '<button class="menu-item" data-a="bg" title="排进后台整理（只做还没做完的步骤）">排进后台整理</button>'}
     <button class="menu-item" data-a="rename">重命名…</button>
     <button class="menu-item" data-a="reveal">在资源管理器中显示</button>
     ${n.top ? '<button class="menu-item danger" data-a="remove">从媒体库移除（不删除文件）</button>' : ''}`, m => {
@@ -533,6 +598,12 @@ async function libReorder(d, list) {
     }
   }
   const names = list.map(x => top ? x.dataset.drag : x.dataset.fname);
+  // 书籍 / 课程分开列：这一层另一类的（现在看不见）按原来的顺序接在后面，它们之间的先后不变
+  const all = top ? S.lib : ((libNode(d.parent) || {}).children || []);
+  for (const n of all) {
+    const name = top ? n.path : n.fname;
+    if (name && !list.some(x => x.dataset.drag.toLowerCase() === n.path.toLowerCase())) names.push(name);
+  }
   try { loadLibrary((await api('library_reorder', { parent: d.parent, names })).groups); } catch (e) { fail(e); }
 }
 const siblings0 = parent => $$('[data-drag]', $('#libBody')).filter(el => el.dataset.parent === parent);
@@ -571,7 +642,9 @@ async function pickAndOpen() {
 }
 window.openPath = async function (path) {
   if (S.job && !(S.jobInfo && S.jobInfo.id === S.job && S.jobInfo.detachable)) return toast('这个任务做完前不能切换（只要几十秒），请稍等或点上方的「取消」', { error: true });
-  if (S.view === 'mentor' && typeof switchView === 'function') switchView('course');  // 在老师工作台里打开课程（拖入文件等）：切回课程
+  // 左上角跟着打开的东西切：书 →「书籍」，音视频 →「课程」（在老师工作台里点出处、拖入文件等也一样）
+  const want = BOOK_FILE_RE.test(path) ? 'book' : 'course';
+  if (S.view !== want && typeof switchView === 'function') switchView(want);
   try {
     await flushSave();
     const d = await api('open', { path });
@@ -584,7 +657,7 @@ window.openPath = async function (path) {
     if (d.kind === 'book') { openBook(d); return; }
     setMode('media');
     S.resumeAt = d.position || 0;
-    S.path = d.path; S.doc = d.doc; S.info = d.info; S.undo = []; S.active = -1; S.dirty = false;
+    S.path = d.path; S.doc = d.doc; S.info = d.info; S.undo = []; S.sumUndo = []; S.active = -1; S.dirty = false;
     revealInLibrary(d.path);
     // 换课时关掉单句循环：「存疑 / 回听」会自动打开它，以前一直开着，换到别的课就一直循环同一句
     $('#optLoop').checked = false; S.loopIdx = null; updateLoopHint();
@@ -647,7 +720,7 @@ function pageRef(n) { const s = bookShift(); return s !== null && n - s >= 1 ? `
 function openBook(d) {
   S.path = d.path; S.doc = d.doc; S.info = { has_video: false, book: d.book }; S.book = d.book; S.viewer = d.viewer; S.pending = d.pending || [];
   revealInLibrary(d.path);
-  S.undo = []; S.dirty = false; S.lastSaved = d.doc.updated || null; S.rev = d.doc.rev || 0; S.bookSel = S.bookSel && S.bookSel.path === d.path ? S.bookSel : { path: d.path, i: -1 };
+  S.undo = []; S.sumUndo = []; S.dirty = false; S.lastSaved = d.doc.updated || null; S.rev = d.doc.rev || 0; S.bookSel = S.bookSel && S.bookSel.path === d.path ? S.bookSel : { path: d.path, i: -1 };
   S.bookChecked = new Set();
   setMode('book');
   $('#empty').hidden = true;
@@ -658,7 +731,7 @@ function openBook(d) {
   $('#bkFirst').closest('.field').hidden = d.book.kind !== 'pdf';
   $('#bkInfo').textContent = `${d.book.kind_name}，${d.book.pages} ${d.book.unit}，约 ${Math.round(d.book.chars / 1000)} 千字，${d.book.figures} 页有图表` +
     (d.book.kind === 'pdf' && d.book.detected_shift === null ? '。没认出书上的页码，请填上面的「书上第 1 页是 PDF 第几页」，否则锚点写成「PDF 第 X 页」' : '') +
-    (d.book.scan && d.book.chars < d.book.pages * 50 ? '。⚠ 这个 PDF 几乎没有文字层，请先用 WPS 做 OCR' : '') +
+    (d.book.scan && d.book.chars < d.book.pages * 50 ? '。⚠ 这个 PDF 几乎没有文字（每页都是图片），请先点下面的「识别文字（OCR）」' : '') +
     (d.book.companion ? `。同时参考同名 Word「${d.book.companion}」的正文` : '') +
     (!d.book.toc && (d.doc.chapters || []).every(c => /^第 \d+–\d+ 页$|^全文$/.test(c.title)) ? '。⚠ 没认出章节，现在是按页数分段；建议点「AI 读目录分章」' : '');
   updateShiftHint();
@@ -669,6 +742,15 @@ function openBook(d) {
       $('#bookText').innerHTML = r.pages.map(p => `<div class="bpage" id="bp-${p.n}"><span class="bref">第 ${p.n} ${S.book.unit || '段'}</span>${esc(p.text)}${p.images.map(u => `<img src="${esc(u)}" alt="">`).join('')}</div>`).join('');
     }).catch(fail);
   }
+  // 书籍信息平时收起（核对过就不用总看着）；刚打开还没整理、或者有要注意的（⚠）时展开
+  $('#bkMetaBox').open = $('#bkInfo').textContent.includes('⚠') || !(d.doc.chapters || []).some(c => (c.md || '').trim());
+  $('#bkSrcMode [data-m=orig]').textContent = d.viewer ? 'PDF' : '原样';
+  // 扫描版 PDF 才有「识别文字」：没有文字的叫「识别文字（OCR）」，已经有一层（比如 WPS 认得很差的）叫「重新识别文字」
+  $('#bkOcr').hidden = !(d.book.kind === 'pdf' && d.book.scan);
+  $('#bkOcr').textContent = d.book.chars < d.book.pages * 50 ? '识别文字（OCR）' : '重新识别文字';
+  $('#bkOcr').classList.toggle('primary', d.book.chars < d.book.pages * 50);
+  $('#bkSrcText').innerHTML = ''; delete $('#bkSrcText').dataset.key;
+  applyBookLayout(); setSrcMode(false);
   renderTeacherSelect(); renderBook(); updateButtons(); updateSaveLabel(); renderLibrary(); busyNotice(d);
 }
 /* Agent（命令行）正在后台自动整理这节课 */
@@ -696,40 +778,149 @@ function renderBook() {
   const d = S.doc, list = $('#bkChapters');
   const chs = d.chapters || [];
   list.innerHTML = `<div class="ch-row overview ${S.bookSel.i === -2 ? 'active' : ''}" data-ch="-2"><span>📘</span><span>00、全书总览</span>${(d.overview || '').trim() ? '<span class="ch-state ok">✓ 已生成</span>' : '<span class="ch-state">未生成</span>'}</div>` +
-    chs.map((c, i) => `<div class="ch-row ${S.bookSel.i === i ? 'active' : ''}" data-ch="${i}">
+    chs.map((c, i) => (c.part && c.part !== (chs[i - 1] || {}).part ? `<div class="ch-part" title="原书目录里的部分（只用来分组，下面的每一篇单独整理）">${esc(c.part)}</div>` : '')
+      + `<div class="ch-row ${S.bookSel.i === i ? 'active' : ''} ${c.part ? 'in-part' : ''}" data-ch="${i}">
       <input type="checkbox" data-chk ${S.bookChecked.has(i) ? 'checked' : ''} title="勾选后点「整理选中的章节」">
-      <input type="text" data-f="title" value="${esc(c.title)}" title="章名">
-      <input type="number" data-f="start" value="${c.start}" min="1" title="从 PDF 第几页（${esc(pageRef(c.start))}）">
-      <input type="number" data-f="end" value="${c.end}" min="1" title="到 PDF 第几页（${esc(pageRef(c.end))}）">
-      <span>${chapterState(c)}<button data-delch title="删除这一章（不影响原文）">✕</button></span></div>`).join('');
+      <input type="text" data-f="title" value="${esc(c.title)}" title="章名（可以直接改）">
+      ${chapterState(c)}
+      <span class="ch-pages">PDF 第<input type="number" data-f="start" value="${c.start}" min="1" title="从 PDF 第几页（${esc(pageRef(c.start))}）">–<input type="number" data-f="end" value="${c.end}" min="1" title="到 PDF 第几页（${esc(pageRef(c.end))}）">页
+        <span class="grow"></span><button data-delch title="删除这一章（不影响原文）">✕ 删除</button></span></div>`).join('');
+  renderTocCount();
   renderChapterView();
   updateButtons();
+}
+function renderTocCount() {
+  const chs = (S.doc && S.doc.chapters) || [];
+  $('#bkTocCount').textContent = chs.length ? `共 ${chs.length} 章 · 已整理 ${chs.filter(c => (c.md || '').trim()).length}` : '';
+  $('#bkMetaSum').textContent = S.doc ? ` · 《${S.doc.title || ''}》${bookShift() === null ? '' : ` · 书上第 1 页 = PDF 第 ${bookShift() + 1} 页`}` : '';
 }
 function renderChapterView() {
   const d = S.doc, i = S.bookSel.i;
   const c = i >= 0 ? (d.chapters || [])[i] : null;
   const text = i === -2 ? d.overview : (c ? c.md : '');
+  if (bookReading()) TTS.stop();  // 内容要换了：朗读停下（再点朗读，从这一章上次读到的地方接着读）
+  $('#bkTts').disabled = !(text || '').trim();
   $('#bkViewTitle').textContent = i === -2 ? '00、全书总览' : (c ? `${String(i + 1).padStart(2, '0')}、${c.title}（${pageRef(c.start)}–${pageRef(c.end)}）` : '');
   $('#bkView').innerHTML = (text || '').trim() ? bookMd(text)
     : `<div class="ai-empty">${i === -2 ? '章节整理好以后，点「全书总览」生成。' : c ? '这一章还没整理。点「整理选中的章节」开始。' : '先核对上面的书名、作者和页码，再看看章节分得对不对（可以直接改章名和起止页），然后整理。<br>点左边原文里的页码会跳过去。'}</div>`;
+  hydrateBookFigs($('#bkView'));
   $('#bkEdit').disabled = !(i === -2 || c); $('#bkCopy').disabled = !(text || '').trim();
   $('#bkViewHint').textContent = c && c.note ? c.note : '';
   if (bookEditing) toggleBookEdit(false);
+  if (S.srcRead) loadSrcText();  // 原书正显示文字版：换成这一章的原文（同一章不重读）
+  if (bkChatMode) renderBookChat();  // 正在 AI 对话：换成这一章的对话
+}
+
+/* ---------- 三列的显示、隐藏、宽度（2026-10-29 用户要求：原书正文、目录、整理笔记三列，各自能隐藏；记在本机） ---------- */
+const BOOK_LAYOUT_KEY = 'book-layout';
+let bookLayout = { src: 0, toc: 300, hide: {}, prev: null };
+try { Object.assign(bookLayout, JSON.parse(localStorage.getItem(BOOK_LAYOUT_KEY) || '{}')); } catch (_) { /* 本机存不了就用默认 */ }
+function saveBookLayout() { try { localStorage.setItem(BOOK_LAYOUT_KEY, JSON.stringify(bookLayout)); } catch (_) { /* 本机存不了就不记 */ } }
+function applyBookLayout() {
+  const h = bookLayout.hide || {}, main = $('#bookMain');
+  for (const k of ['src', 'toc', 'note']) $(`#bookMain [data-col="${k}"]`).classList.toggle('collapsed', !!h[k]);
+  main.classList.toggle('note-hidden', !!h.note);
+  main.classList.toggle('src-hidden', !!h.src);
+  $('#bookLeft').style.width = bookLayout.src ? bookLayout.src + 'px' : '';
+  $('#bookToc').style.width = (bookLayout.toc || 300) + 'px';
+  $('#bookSplit').hidden = !!h.src || (!!h.toc && !!h.note);  // 左边那条：调原书宽度（笔记隐藏时调目录宽度）
+  $('#bookSplit2').hidden = !!h.toc || !!h.note;               // 右边那条：调目录宽度
+  $('#bkZoom').textContent = h.src && h.toc && !h.note ? '还原' : '放大';
+  // 朗读的那一列被隐藏了：停下
+  const t = typeof TTS !== 'undefined' && TTS.active();
+  if (t && t.root && t.root.closest('.bk-col.collapsed')) TTS.stop();
+}
+function setBookCol(k, hidden) {
+  bookLayout.hide = { ...(bookLayout.hide || {}), [k]: hidden };
+  bookLayout.prev = null;
+  applyBookLayout(); saveBookLayout();
+}
+function bookZoom() {
+  const h = bookLayout.hide || {};
+  if (h.src && h.toc && !h.note) bookLayout.hide = bookLayout.prev || {};
+  else { bookLayout.prev = { ...h }; bookLayout.hide = { src: true, toc: true, note: false }; }
+  applyBookLayout(); saveBookLayout();
+}
+
+/* ---------- 原书：PDF / 文字版；朗读原文（2026-10-29 用户选的做法：读的时候换成这一章的文字版，正在读的句子高亮） ---------- */
+const srcReading = () => typeof TTS !== 'undefined' && !!TTS.active() && TTS.active().root === $('#bkSrcText');
+function setSrcMode(read, auto) {
+  S.srcRead = read; S.srcAuto = read && !!auto;
+  $$('#bkSrcMode button').forEach(b => b.classList.toggle('on', (b.dataset.m === 'read') === read));
+  $('#bkSrcText').hidden = !read;
+  $(S.viewer ? '#bookPdf' : '#bookText').hidden = read;
+  if (!read) { if (srcReading()) TTS.stop(); return Promise.resolve(true); }
+  return loadSrcText();
+}
+let srcSeq = 0, figWatch = null;
+async function loadSrcText() {
+  const box = $('#bkSrcText'), i = S.bookSel.i, c = i >= 0 ? (S.doc.chapters || [])[i] : null;
+  const a = c ? c.start : 1, b = c ? c.end : ((S.book && S.book.pages) || 1), path = S.path, key = `${path}|${a}-${b}|${c ? c.title : ''}`;
+  if (box.dataset.key === key) return true;
+  const my = ++srcSeq;
+  if (srcReading()) TTS.stop(true);
+  box.dataset.key = key;
+  box.innerHTML = '<div class="muted">正在读取原文…</div>';
+  try {
+    const r = await api('book_read', { path, start: a, end: b, shift: bookShift() });
+    if (my !== srcSeq || S.path !== path) return false;
+    // 页码、「这一页有图表」的说明不读（tts-skip）；PDF 有图表的页，滚到附近时把这一页的图显示出来，朗读跳过图
+    box.innerHTML = `<h3>${esc(c ? c.title : '全书')}<span class="muted small-text tts-skip">　原文 ${esc(pageRef(a))}–${esc(pageRef(b))}</span></h3>`
+      + (r.pages.map(p => `<div class="bpage"><a class="pglink bref" data-n="${p.n}" title="在 PDF 里看这一页">${esc(p.ref)}</a>`
+        + p.paras.map(x => `<p>${esc(x)}</p>`).join('') + p.images.map(u => `<img class="bfig-img" src="${esc(u)}" alt="" title="点开放大">`).join('')
+        + (r.pdf && p.figure ? `<div class="bfig tts-skip" data-n="${p.n}"><div class="muted small-text">这一页有图表（朗读时跳过，点图放大）</div></div>` : '') + '</div>').join('')
+        || '<div class="muted">这几页没有文字</div>');
+    box.scrollTop = 0;
+    watchFigs(box);
+    return true;
+  } catch (e) { if (my === srcSeq) { delete box.dataset.key; box.innerHTML = `<div class="muted">读不出原文：${esc(e.message)}</div>`; } return false; }
+}
+function watchFigs(box) {
+  if (figWatch) figWatch.disconnect();
+  figWatch = new IntersectionObserver(ents => ents.forEach(en => {
+    if (!en.isIntersecting) return;
+    const el = en.target; figWatch.unobserve(el);
+    api('book_page_img', { path: S.path, n: +el.dataset.n }).then(r => {
+      if (el.isConnected) el.insertAdjacentHTML('beforeend', `<img class="bfig-img" src="${esc(r.src)}" alt="第 ${el.dataset.n} 页" title="点开放大">`);
+    }).catch(() => {});
+  }), { root: box, rootMargin: '800px 0px' });
+  $$('.bfig', box).forEach(el => figWatch.observe(el));
+}
+/* 朗读原文用的来源（tts.js 读）：关掉朗读时，如果文字版是朗读原文自动切过来的，换回 PDF */
+function bookSrcSource() {
+  const i = S.bookSel ? S.bookSel.i : -1;
+  return { root: $('#bkSrcText'), pane: 'booksrc:' + i, name: '原文', anchor: $('#bookLeft .bk-col-head'), onClose: () => { if (S.srcAuto) setSrcMode(false); } };
+}
+async function bookReadSrc() {
+  if (!S.srcRead) { if (!(await setSrcMode(true, true))) return; }
+  else if (!(await loadSrcText())) return;
+  TTS.button(bookSrcSource());
 }
 let bookEditing = false;
 function toggleBookEdit(on) {
   bookEditing = on ?? !bookEditing;
-  $('#bkEditor').hidden = !bookEditing; $('#bkView').hidden = bookEditing;
+  if (bookEditing && bookReading()) TTS.stop();
+  $('#bkEditor').hidden = !bookEditing; $('#bkView').hidden = bookEditing || bkChatMode;
   $('#bkEdit').textContent = bookEditing ? '完成编辑' : '编辑';
   const i = S.bookSel.i;
   if (bookEditing) $('#bkEditor').value = i === -2 ? (S.doc.overview || '') : ((S.doc.chapters[i] || {}).md || '');
   else renderChapterViewOnly();
 }
+/* 原书图示：按页码和位置裁出来显示（bridge.do_book_fig，和剪藏时同一个裁法） */
+function hydrateBookFigs(root) {
+  const path = S.path;
+  $$('.book-fig', root).forEach(fig => {
+    api('book_fig', { path, n: +fig.dataset.pn, region: fig.dataset.reg || '' })
+      .then(r => { const img = fig.querySelector('img'); if (img && S.path === path) img.src = r.src; })
+      .catch(() => { fig.querySelector('figcaption').insertAdjacentText('beforeend', '（图裁不出来）'); });
+  });
+}
+const bookReading = () => typeof TTS !== 'undefined' && !!TTS.active() && TTS.active().root === $('#bkView');
 function renderChapterViewOnly() { const keep = bookEditing; bookEditing = false; renderChapterView(); bookEditing = keep; }
 async function bookOrganize(indexes) {
   if (!indexes.length) return toast('没有要整理的章节', { error: true });
   try {
-    const res = await runSteps(['organize'], '正在整理…', { opts: { chapters: indexes } });
+    const res = await runSteps(['organize'], '正在整理…', { opts: { chapters: indexes }, onItems: bookLive });
     const out = stepResult(res, 'organize');
     if (out && out.chapters) S.bookSel.i = indexes[indexes.length - 1];
     renderDoc();
@@ -739,6 +930,92 @@ async function bookOrganize(indexes) {
     return true;
   } catch (e) { fail(e); return false; }
 }
+/* 整理时每存好一章，后台推一条 {kind: 'chapter'}：只更新这一章（不重画整个列表，正在改的章名、正在编辑的笔记不受影响） */
+function bookLive(items) {
+  for (const x of items) {
+    const c = x.kind === 'chapter' && S.doc && (S.doc.chapters || [])[x.i];
+    if (!c || c.title !== x.title || +c.start !== +x.start || +c.end !== +x.end) continue;  // 这期间分章改了：等做完重新读取
+    Object.assign(c, { md: x.md, updated: x.updated, note: x.note });
+    const st = $(`#bkChapters .ch-row[data-ch="${x.i}"] .ch-state`);
+    if (st) st.outerHTML = chapterState(c);
+    renderTocCount();
+    if (S.bookSel.i === x.i && !bookEditing) renderChapterView();
+  }
+}
+/* ---------- 书的 AI 对话（2026-10-29）：「整理笔记」这一列里和笔记二选一。笔记是提炼（约原文 1/5），所以 AI 读原文回答：
+   问这一章读这一章的原文全文 + 笔记，问整本书读全部笔记 + 本机挑的相关原文页（bridge.do_book_chat）。
+   问答由后台写进 book_chat（不走界面保存，后台可能正在整理这本书），界面不改 dirty。 ---------- */
+let bkChatMode = false, bkChatScope = 'chapter';
+function bookChatWhere() {
+  const i = S.bookSel ? S.bookSel.i : -1, c = i >= 0 ? (S.doc.chapters || [])[i] : null;
+  return bkChatScope === 'book' || !c ? { scope: 'book', key: 'book', i: -1, c: null } : { scope: 'chapter', key: `ch:${c.start}-${c.end}`, i, c };
+}
+function setNoteMode(chat) {
+  bkChatMode = !!chat;
+  if (bkChatMode && bookEditing) toggleBookEdit(false);
+  if (bkChatMode && bookReading()) TTS.stop();
+  $$('#bkNoteMode button').forEach(b => b.classList.toggle('on', (b.dataset.m === 'chat') === bkChatMode));
+  $('#bookNote').classList.toggle('chat-mode', bkChatMode);
+  $('#bkChat').hidden = !bkChatMode;
+  $('#bkView').hidden = bkChatMode || bookEditing;
+  if (bkChatMode) { renderBookChat(); $('#bkChatInput').focus(); }
+}
+function renderBookChat() {
+  if (!bkChatMode || !S.doc) return;
+  const w = bookChatWhere();
+  $$('#bkChatScope button').forEach(b => b.classList.toggle('on', b.dataset.s === w.scope));
+  $('#bkChatHint').textContent = w.scope === 'book' ? 'AI 读全部章节的笔记，再从原文里挑出和问题相关的页' : `AI 读「${w.c.title}」的原文全文和笔记`;
+  $('#bkChatInput').placeholder = (w.scope === 'book' ? '问整本书…' : '问这一章…') + '（Enter 发送，Shift+Enter 换行）';
+  const msgs = ((S.doc.book_chat || {})[w.key]) || [];
+  const box = $('#bkChatBox');
+  box.innerHTML = msgs.length
+    ? msgs.map(m => `<div class="msg ${m.role}"><div class="bubble ${m.role === 'assistant' ? 'md' : ''}">${m.role === 'assistant' ? bookMd(m.content) : esc(m.content)}</div></div>`).join('')
+    : `<div class="ai-empty">${w.scope === 'book' ? 'AI 读过全部章节的提炼笔记，回答时再从原文里挑出和问题相关的页。' : `AI 读过「${esc(w.c.title)}」的原文全文和提炼笔记。`}<br>回答里的页码可以点，原书那一列会跳到那一页。</div>`;
+  box.scrollTop = box.scrollHeight;
+}
+async function sendBookChat(q) {
+  q = (q || '').trim(); if (!q || !S.doc || S.chatAbort) return;
+  const w = bookChatWhere(), path = S.path;
+  S.doc.book_chat = S.doc.book_chat || {};
+  const list = S.doc.book_chat[w.key] = S.doc.book_chat[w.key] || [];
+  list.push({ role: 'user', content: q });
+  $('#bkChatInput').value = '';
+  renderBookChat();
+  const box = $('#bkChatBox');
+  box.insertAdjacentHTML('beforeend', '<div class="msg assistant"><div class="bubble md typing"></div></div>');
+  const bubble = box.lastElementChild.firstElementChild;
+  $('#bkChatSend').textContent = '停止';
+  try {
+    const text = await streamAI({ api: 'book_chat', path, scope: w.scope, i: w.i, key: w.key, messages: list },
+      t => { if (bubble.isConnected) { bubble.innerHTML = bookMd(t); box.scrollTop = box.scrollHeight; } });
+    list.push({ role: 'assistant', content: text.trim() });
+  } catch (e) {
+    if (e.name === 'AbortError') { const t = bubble.innerText.trim(); if (t) list.push({ role: 'assistant', content: t + '（已停止）' }); }
+    else { fail(e); list.pop(); $('#bkChatInput').value = q; }
+  }
+  $('#bkChatSend').textContent = '发送';
+  if (S.path === path) { renderBookChat(); syncBookFromDisk(); }  // 后台存了对话、版本号变了：没有未保存的修改就马上对上
+}
+/* 点回答里的页码：原书那一列跳到那一页（原书隐藏着就打开，正显示文字版就换回 PDF） */
+function bookGo(n) {
+  if ((bookLayout.hide || {}).src) setBookCol('src', false);
+  if (S.srcRead) setSrcMode(false);
+  bookJump(n);
+}
+/* 书被命令行或后台队列整理（不是这里前台在整理）时，每 20 秒看一次有没有新整理好的章节（文件的 rev 变了才重画）。
+   不只看打开时有没有在整理：可能是先打开、后开始整理的。正在改东西、正在听朗读时不打扰 */
+async function syncBookFromDisk() {  // 正在改东西、朗读、等 AI 回答时不打扰
+  const idle = () => S.mode === 'book' && S.doc && !S.job && !S.dirty && !bookEditing && !bookReading() && !S.chatAbort && !$('#bkChapters').contains(document.activeElement);
+  if (!idle()) return;
+  const path = S.path;
+  try {
+    const r = await api('doc', { path });
+    if (S.path !== path || !idle() || (r.doc.rev || 0) === S.rev) return;
+    S.doc = r.doc; S.rev = r.doc.rev || 0; S.lastSaved = r.doc.updated || S.lastSaved; S.pending = r.pending || [];
+    syncLibFromDoc(); renderBook();  // 左边媒体库的「整理 x/18」也跟着变
+  } catch (e) { /* 下次再看 */ }
+}
+setInterval(syncBookFromDisk, 20000);
 async function bookOverview() {
   if (!(S.doc.chapters || []).some(c => (c.md || '').trim())) return toast('还没有整理好的章节', { error: true });
   try {
@@ -749,16 +1026,50 @@ async function bookOverview() {
     if (out) toast(out.skipped !== undefined ? out.skipped : '全书总览写好了');
   } catch (e) { fail(e); }
 }
+/* 扫描书识别文字（2026-10-29，bridge.do_book_ocr / core/ocr.py）：做完用原来的文件名换上新的可搜索 PDF，重新打开 */
+async function bookOcr() {
+  if (S.job || !S.doc) return;
+  const again = (S.book.chars || 0) >= (S.book.pages || 1) * 50, done = (S.doc.chapters || []).some(c => (c.md || '').trim());
+  if (!confirm('用 Windows 自带的文字识别，把这本扫描书的每一页认成文字（在这台电脑上识别，不联网、不花钱，300 页大约 2 分钟）。\n\n'
+    + '做完会生成带文字的新 PDF，用原来的文件名；原文件挪进同一个文件夹里的「_OCR前的原件」，不删。'
+    + (again ? '\n\n这本书已经有一层文字（可能是以前别的软件识别的），会换成新识别的。' : '')
+    + (done ? '\n\n已经整理好的章节不受影响。' : '\n\n做完会按新文字重新分章。') + '\n\n开始吗？')) return;
+  await flushSave();
+  const path = S.path;
+  if (S.viewer) $('#bookPdf').src = 'about:blank';  // 放开原文件，才能挪走
+  let out = null;
+  try {
+    const r = await api('book_ocr', { path });
+    await runJob(r.job, '正在识别文字…', { onDone: job => { out = job.result; } });
+  } catch (e) { fail(e); }
+  await window.openPath(path);  // 换成了新的文件：重新打开
+  if (out) toast(`识别好了：${out.pages} 页认出约 ${Math.round(out.chars / 1000)} 千字`
+    + (out.empty.length ? `，${out.empty.length} 页几乎没字（多半是空白页或整页的图）` : '')
+    + '。原文件在同一文件夹的「_OCR前的原件」里，确认没问题可以删。' + (done ? '' : '章节没分对的话，点「AI 读目录分章」。'), { ms: 14000 });
+}
+/* 重新分章：起止页一样的章，保留整理好的内容（2026-10-29 用户确认的方案：只重新整理变了的） */
+function keepNotes(old, chs) {
+  let kept = 0;
+  const chapters = chs.map(c => {
+    const o = old.find(x => +x.start === +c.start && +x.end === +c.end && (x.md || '').trim());
+    if (!o) return { ...c, md: '' };
+    kept++;
+    return { ...c, md: o.md, ...(o.updated ? { updated: o.updated } : {}), ...(o.note ? { note: o.note } : {}) };
+  });
+  return { chapters, kept };
+}
 async function bookAiToc() {
-  if ((S.doc.chapters || []).some(c => (c.md || '').trim()) && !confirm('重新分章会清掉已经整理的章节内容。继续吗？')) return;
+  if ((S.doc.chapters || []).some(c => (c.md || '').trim()) && !confirm('重新分章：起止页没变的章保留已经整理的内容，其他的要重新整理。继续吗？')) return;
   try {
     const r = await api('book_chapters', { path: S.path, ai: true, shift: bookShift() });
     await runJob(r.job, 'AI 正在读目录…', {
       onDone: job => {
         const chs = job.result.chapters || [];
         if (!chs.length) return toast('AI 没有从目录里认出章节，可以手动改章名和起止页', { error: true });
-        S.doc.chapters = chs.map(c => ({ ...c, md: '' })); S.bookSel.i = 0; S.bookChecked = new Set();
-        renderBook(); markDirty(); toast(`分成了 ${chs.length} 章，请核对起止页`);
+        const { chapters, kept } = keepNotes(S.doc.chapters || [], chs);
+        S.doc.chapters = chapters; S.bookSel.i = 0; S.bookChecked = new Set();
+        renderBook(); markDirty();
+        toast(`按原书目录分成了 ${chs.length} 篇` + (kept ? `，其中 ${kept} 篇起止页没变、保留了整理好的内容；其余的点「整理全部未整理的」` : '') + '。请核对起止页', { ms: 9000 });
       },
     });
   } catch (e) { fail(e); }
@@ -782,7 +1093,7 @@ async function bookClip() {
   } catch (e) { fail(e); return false; }
 }
 function bindBook() {
-  $('#bkTitle').addEventListener('input', e => { if (S.doc) { S.doc.title = e.target.value.trim(); $('#fileTitle').textContent = S.doc.title; markDirty(); } });
+  $('#bkTitle').addEventListener('input', e => { if (S.doc) { S.doc.title = e.target.value.trim(); $('#fileTitle').textContent = S.doc.title; renderTocCount(); markDirty(); } });
   $('#bkAuthor').addEventListener('input', e => { if (S.doc) { S.doc.author = e.target.value.trim(); markDirty(); } });
   $('#bkFirst').addEventListener('change', e => {
     const v = e.target.value.trim();
@@ -812,6 +1123,7 @@ function bindBook() {
   $('#bkRunAll').onclick = () => { if (!S.job) bookOrganize(S.doc.chapters.map((c, i) => (c.md || '').trim() ? -1 : i).filter(i => i >= 0)); };
   $('#bkOverview').onclick = () => { if (!S.job) bookOverview(); };
   $('#bkAiToc').onclick = () => { if (!S.job) bookAiToc(); };
+  $('#bkOcr').onclick = () => { if (!S.job) bookOcr(); };
   $('#bkAddCh').onclick = () => {
     const last = S.doc.chapters[S.doc.chapters.length - 1];
     const start = last ? Math.min(last.end + 1, S.book.pages) : 1;
@@ -826,14 +1138,58 @@ function bindBook() {
   });
   $('#bkCopy').onclick = () => { const i = S.bookSel.i; navigator.clipboard.writeText(i === -2 ? S.doc.overview : S.doc.chapters[i].md).then(() => toast('已复制')); };
   $('#bkView').addEventListener('click', e => {
+    const fimg = e.target.closest('.book-fig img'); if (fimg && fimg.src) return showLightbox(fimg.src);
     const a = e.target.closest('.pglink'); if (!a) return;
     if (a.dataset.n) bookJump(+a.dataset.n);
     else { const s = bookShift(); bookJump(+a.dataset.p + (s === null ? 0 : s)); }
   });
+  // 三列：隐藏 / 显示 / 放大；拖分隔线调宽度
+  $('#bookMain').addEventListener('click', e => {
+    const hide = e.target.closest('[data-hide]'), show = e.target.closest('[data-show]');
+    if (hide) setBookCol(hide.dataset.hide, true);
+    else if (show) setBookCol(show.dataset.show, false);
+  });
+  $('#bkZoom').onclick = bookZoom;
+  // 书的 AI 对话
+  $('#bkNoteMode').addEventListener('click', e => { const b = e.target.closest('[data-m]'); if (b && S.doc) setNoteMode(b.dataset.m === 'chat'); });
+  $('#bkChatScope').addEventListener('click', e => {
+    const b = e.target.closest('[data-s]'); if (!b || S.chatAbort) return;
+    if (b.dataset.s === 'chapter' && !(S.bookSel.i >= 0)) return toast('先在目录里点一章');
+    bkChatScope = b.dataset.s; renderBookChat();
+  });
+  $('#bkChatSend').onclick = () => { if (S.chatAbort) S.chatAbort.abort(); else sendBookChat($('#bkChatInput').value); };
+  $('#bkChatInput').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendBookChat(e.target.value); } });
+  $('#bkChips').addEventListener('click', e => { const b = e.target.closest('[data-q]'); if (b) sendBookChat(b.dataset.q); });
+  $('#bkChatClear').onclick = async () => {
+    const w = bookChatWhere();
+    if (S.chatAbort || !((S.doc.book_chat || {})[w.key] || []).length) return;
+    if (!confirm(w.scope === 'book' ? '清空整本书的 AI 对话记录？' : `清空「${w.c.title}」的 AI 对话记录？`)) return;
+    try { await api('book_chat_clear', { path: S.path, key: w.key }); delete S.doc.book_chat[w.key]; renderBookChat(); syncBookFromDisk(); } catch (e) { fail(e); }
+  };
+  $('#bkChatBox').addEventListener('click', e => {
+    const a = e.target.closest('.pglink'); if (!a) return;
+    if (a.dataset.n) bookGo(+a.dataset.n); else { const s = bookShift(); bookGo(+a.dataset.p + (s === null ? 0 : s)); }
+  });
+  $('#bkSrcMode').addEventListener('click', e => { const b = e.target.closest('[data-m]'); if (b && S.doc) setSrcMode(b.dataset.m === 'read'); });
+  $('#bkSrcTts').onclick = () => { if (S.doc) bookReadSrc(); };
+  $('#bkSrcText').addEventListener('click', e => {
+    const img = e.target.closest('.bfig-img'); if (img) return showLightbox(img.src);
+    const a = e.target.closest('.pglink'); if (a) { setSrcMode(false); bookJump(+a.dataset.n); }  // 点页码：回到 PDF 看这一页
+  });
+  const W = () => $('#bookMain').getBoundingClientRect().width;
   dragger($('#bookSplit'), 'x', ev => {
-    const L = $('#bookMain').getBoundingClientRect();
-    $('#bookLeft').style.width = clamp((ev.clientX - L.left) / L.width, 0.2, 0.75) * 100 + '%';
-  }, () => {});
+    if ((bookLayout.hide || {}).note) {  // 笔记隐藏时原书占满，这条线调目录宽度
+      bookLayout.toc = Math.round(clamp($('#bookToc').getBoundingClientRect().right - ev.clientX, 210, 700));
+    } else {
+      const left = $('#bookLeft').getBoundingClientRect().left;
+      bookLayout.src = Math.round(clamp(ev.clientX - left, 240, W() - 380 - ((bookLayout.hide || {}).toc ? 34 : $('#bookToc').getBoundingClientRect().width)));
+    }
+    applyBookLayout();
+  }, saveBookLayout);
+  dragger($('#bookSplit2'), 'x', ev => {
+    bookLayout.toc = Math.round(clamp(ev.clientX - $('#bookToc').getBoundingClientRect().left, 210, Math.max(210, W() - 340 - ((bookLayout.hide || {}).src ? 34 : $('#bookLeft').getBoundingClientRect().width))));
+    applyBookLayout();
+  }, saveBookLayout);
 }
 
 /* 播放进度：播放中每 5 秒、暂停、关闭软件时记下来 */
@@ -867,21 +1223,22 @@ function cueHTML(seg, i) {
     <div class="cue-body">
       <div class="src" contenteditable="plaintext-only" spellcheck="false">${esc(seg.text)}</div>
       <div class="tr" contenteditable="plaintext-only" spellcheck="false" data-ph="${S.doc.lang === 'en' ? '（还没有译文，点「翻译」或在这里手动输入）' : ''}">${esc(seg.tr || '')}</div>
-      ${d ? `<div class="doubt-tag"><span class="why" title="${esc(d.reason)}">存疑：${esc(d.reason)}</span><button data-doubt="play" title="单句循环播放这一句">回听</button><button data-doubt="ok" title="已经回听确认（或改好了），去掉标记">已确认</button></div>` : ''}
+      ${d ? `<div class="doubt-tag"><span class="why" title="${esc(d.reason)}">存疑：${esc(d.reason)}</span><button data-doubt="play" title="单句循环播放这一句">回听</button><button data-doubt="ok" title="去掉存疑标记">已确认</button></div>` : ''}
     </div>
-    <div class="cue-tools">
-      <button data-act="align" title="把这一句的开始时间设为当前播放位置">${ICONS.align}</button>
-      <button data-act="split" title="在光标处拆成两句">${ICONS.split}</button>
-      <button data-act="merge" title="与下一句合并">${ICONS.merge}</button>
-      <button data-act="del" title="删除这一句">${ICONS.del}</button>
-    </div>
+    <div class="cue-tools">${cueToolsHTML()}</div>
   </div>`;
 }
+// 每句右边的小工具（说明窗口的按钮表也用这一份）
+const cueToolsHTML = () => `<button data-act="align" title="开始时间设为当前播放位置">${ICONS.align}</button>`
+  + `<button data-act="split" title="在光标处拆成两句">${ICONS.split}</button>`
+  + `<button data-act="merge" title="与下一句合并">${ICONS.merge}</button>`
+  + `<button data-act="del" title="删除这一句">${ICONS.del}</button>`;
 function renderCues() {
   const box = $('#cues');
   const segs = S.doc ? S.doc.segments : [];
   box.innerHTML = segs.length ? `<div class="cues-inner">${segs.map(cueHTML).join('')}</div>`
     : `<div class="cues-empty">这个文件还没有字幕。<br>点上方的「生成字幕」或「一键整理」开始。</div>`;
+  placeSubShots();
   S.active = -1;
   $('#cueCount').textContent = segs.length ? `${segs.length} 句` : '';
   updateDoubtBtn();
@@ -894,6 +1251,59 @@ function cuesInner() {
   return inner;
 }
 function cueEl(i) { return $(`.cue[data-i="${i}"]`, $('#cues')); }
+/* ---------- 字幕里手动插的截图（2026-10-30 用户要求）：S.doc.sub_shots = [{t: 截图时间, at: 挂在哪一句后面（那一句的开始时间）}]。
+   位置按 at 找「开始时间不晚于它的最后一句」（findIndex），句子删了、拆了也找得到；上移 / 下移就是换挂到上一句 / 下一句
+   （语音识别断句不准时，图会落在不对的句子后面）。剪藏时 doc.sub_shot_images 插进「完整字幕」对应的位置。 ---------- */
+function placeSubShots() {
+  const inner = $('.cues-inner', $('#cues'));
+  if (!inner) return;
+  $$('.sub-shot', inner).forEach(el => el.remove());
+  const shots = (S.doc && S.doc.sub_shots) || [];
+  shots.map((x, k) => ({ x, k, i: findIndex(x.at) })).sort((a, b) => a.i - b.i || a.x.t - b.x.t).forEach(({ x, k, i }) => {
+    const html = `<div class="sub-shot${x.w ? ' sized' : ''}" data-sk="${k}"${x.w ? ` style="max-width:${x.w + 2}px"` : ''}>
+      <img alt="" title="点击看大图">
+      <div class="sub-shot-bar"><a class="tslink" data-t="${x.t}">[${fmt(x.t)}]</a> 截图
+        <span class="grow"></span>
+        <button data-ss="up" title="挪到上一句后面">↑ 上移</button><button data-ss="down" title="挪到下一句后面">↓ 下移</button><button data-ss="crop" title="裁剪">✂ 裁剪</button><button data-ss="size" title="调整大小">⇲ 大小</button><button data-ss="del" title="删掉这张截图">删除</button></div>
+    </div>`;
+    const cue = cueEl(i);
+    if (cue) {  // 挂在第 i 句后面：同一句后面有几张时，按插入顺序往后排
+      let after = cue;
+      while (after.nextElementSibling && after.nextElementSibling.classList.contains('sub-shot')) after = after.nextElementSibling;
+      after.insertAdjacentHTML('afterend', html);
+    } else inner.insertAdjacentHTML('afterbegin', html);  // 挂在第一句前面
+    const img = $(`.sub-shot[data-sk="${k}"] img`, inner);
+    frameUrl(x.t, false, x.crop).then(u => { if (u && img) img.src = u; });
+  });
+}
+function insertSubShot() {
+  const v = $('#video');
+  if (!S.doc || !v.getAttribute('src')) return;
+  if (!S.info || !S.info.has_video) return toast('这是音频，没有画面可以截');
+  if (!S.doc.segments.length) return toast('还没有字幕，先生成字幕再插截图');
+  v.pause();
+  const t = +v.currentTime.toFixed(2), i = Math.max(0, findIndex(t));
+  S.doc.sub_shots = S.doc.sub_shots || [];
+  if (S.doc.sub_shots.some(x => Math.abs(x.t - t) < 0.5)) return toast('这个时间已经插过一张了');
+  S.doc.sub_shots.push({ t, at: S.doc.segments[i].start });
+  placeSubShots(); markDirty();
+  const el = $(`.sub-shot[data-sk="${S.doc.sub_shots.length - 1}"]`); if (el) el.scrollIntoView({ block: 'nearest' });
+  toast('截图插在这一句后面了；位置不对可以点图下面的「上移 / 下移」', { ms: 5000 });
+}
+function moveSubShot(k, act) {
+  const x = (S.doc.sub_shots || [])[k], segs = S.doc.segments; if (!x) return;
+  if (act === 'crop') return openShotEdit(x.t, x.crop).then(r => { if (r) { setShotProp(x, 'crop', r.crop); placeSubShots(); markDirty(); } });
+  if (act === 'del') {
+    if (!confirm('删掉这张截图？')) return;
+    S.doc.sub_shots.splice(k, 1);
+  } else {
+    const i = findIndex(x.at), j = act === 'up' ? i - 1 : i + 1;
+    if (j < -1 || j >= segs.length) return toast(act === 'up' ? '已经在最前面了' : '已经在最后面了');
+    x.at = j < 0 ? -1 : segs[j].start;  // -1：挂在第一句前面
+  }
+  placeSubShots(); markDirty();
+  const el = $(`.sub-shot[data-sk="${k}"]`); if (el) el.scrollIntoView({ block: 'nearest' });
+}
 function findIndex(t) {
   const segs = S.doc ? S.doc.segments : [];
   let lo = 0, hi = segs.length - 1, ans = -1;
@@ -989,6 +1399,7 @@ function recordFix(doc, seg, before, after, by) {
 function snapshot() {
   S.undo.push(JSON.stringify(S.doc.segments));
   if (S.undo.length > 60) S.undo.shift();
+  S.undoTarget = 'cues';
   $('#btnUndo').disabled = false;
 }
 function undo() {
@@ -1119,9 +1530,15 @@ function updateButtons() {
   const vid = !!(S.info && S.info.has_video);
   $('#btnFrames').disabled = !S.doc || busy || !vid;
   $('#btnCapture').disabled = !S.doc || busy || !vid;
+  $('#btnSubShot').hidden = !vid;  // 音频没有画面
+  $('#btnSubShot').disabled = !has || busy;
+  $('#btnSubPrint').disabled = $('#btnSubPdf').disabled = !has;
   $('#btnDescribe').disabled = !S.doc || busy || !((S.doc && S.doc.frames) || []).some(f => !f.note);
   $('#btnRecheck').disabled = !S.doc || busy || !vid || !doubtIndexes().length;
   $('#btnReview').disabled = !has || busy || !(S.doc && (S.doc.summary || '').trim()) || !!S.chatAbort;
+  $('#btnSumShot').hidden = !vid;
+  $('#btnSumShot').disabled = !(S.doc && (S.doc.summary || '').trim()) || busy || !!S.chatAbort;
+  $('#btnPrint').disabled = $('#btnPdf').disabled = !(S.doc && (S.doc.summary || '').trim()) || !!S.chatAbort;
   $('#btnTerms').disabled = !has || busy;
   const pend = S.doc && S.doc.terms_pending, nPend = pend ? pend.terms.length + pend.errors.length : 0;
   $('#btnTerms').textContent = nPend ? `新术语 ${nPend}` : '新术语';
@@ -1224,6 +1641,11 @@ function stepResult(res, name) {
   if (st.status === 'cancelled') { toast('已取消'); return null; }
   if (st.status === 'failed') { fail(new Error(st.error || res.task.message || '没有完成')); return null; }
   if (st.status === 'skipped') return { skipped: st.reason || '' };
+  if (st.status !== 'completed') {  // 这一步还没开始整个任务就停了，例如这节课正被后台 / 命令行整理（2026-10-29 以前显示成「整理好了 undefined 章」）
+    const err = res.task.error || {};
+    fail(new Error((err.message || res.task.message || '没有完成') + (err.error_code === 'busy' ? '。等那边整理完再点；那边每整理好一章，这里会自动显示出来' : '')));
+    return null;
+  }
   return st.result || {};
 }
 /* 校对、复核改了的句子标上绿色下划线（这些步骤不增删句子，按位置对得上） */
@@ -1546,7 +1968,7 @@ function bgTag(it) {
   const b = bgOf(it.path);
   if (!b) return '';
   return b.status === 'running' ? `<span class="tag bg" data-bg-pct title="${esc(b.message || '')}">整理中 ${bgPct(b)}%</span>`
-    : '<span class="tag bg" title="排在后台整理队列里，前面的整理完就轮到它">排队中</span>';
+    : '<span class="tag bg" title="排队中，前面的整理完就轮到它">排队中</span>';
 }
 async function bgAdd(body, want) {
   const r = await api('bg_add', body);
@@ -1785,11 +2207,13 @@ async function doClip() {
 
 /* -------------------------------------------------------------- 画面 ---- */
 /* 插图：只挑文字说不清、需要看图的画面，每张一句说明；课程重点里的 ![[画面 mm:ss]] 剪藏时换成图片 */
-function frameUrl(t, small) {
-  const key = `${S.path}|${t}|${small ? 's' : ''}`;
-  if (!S.frameUrls[key]) S.frameUrls[key] = api('frame_url', { path: S.path, t, small }).then(r => r.url).catch(() => { delete S.frameUrls[key]; return ''; });
+function frameUrl(t, small, crop) {
+  const key = `${S.path}|${t}|${small ? 's' : ''}|${crop ? crop.join(',') : ''}`;
+  if (!S.frameUrls[key]) S.frameUrls[key] = api('frame_url', { path: S.path, t, small, crop: crop || null }).then(r => r.url).catch(() => { delete S.frameUrls[key]; return ''; });
   return S.frameUrls[key];
 }
+/* 课程重点里 ![[画面 mm:ss]] 实际用哪张画面：3 秒内有挑出来的画面就用它（和剪藏时 doc.place_figures 一样） */
+const figShot = t => (S.doc.frames || []).filter(f => Math.abs(f.t - t) <= 3).sort((a, b) => Math.abs(a.t - t) - Math.abs(b.t - t))[0];
 const REDRAW_LABEL = 'AI辅助理解图｜根据老师讲解和画面整理，非原画面';
 /* AI辅助理解图在软件里怎么显示：SVG 直接显示（剪藏前后台已清理过）；Mermaid 显示代码，剪藏到 Obsidian 后显示成图 */
 function redrawHTML(r) {
@@ -1801,14 +2225,119 @@ function hydrateFigures(root) {
   if (!S.path) return;
   $$('[data-ft]', root).forEach(fig => {
     const t = +fig.dataset.ft, img = fig.querySelector('img');
-    const shot = (S.doc.frames || []).find(f => Math.abs(f.t - t) <= 3);
+    const shot = figShot(t);
     if (shot && shot.redraw && shot.redraw.code) {
       img.outerHTML = redrawHTML(shot.redraw);
       fig.querySelector('figcaption').insertAdjacentHTML('beforeend', `　<b>${REDRAW_LABEL}</b>${shot.redraw.kind === 'mermaid' ? '（流程图，剪藏到 Obsidian 后显示成图）' : ''}`);
       return;
     }
-    frameUrl(shot ? shot.t : t, false).then(u => { if (u) img.src = u; });
+    const e = (S.doc.fig_edits || {})[String(t)] || {};  // 编辑过的：裁剪后的图、显示宽度
+    if (e.w) fig.style.maxWidth = e.w + 'px';
+    frameUrl(shot ? shot.t : t, false, e.crop).then(u => { if (u) img.src = u; });
   });
+}
+/* ---------- 截图的「裁剪」和「大小」（2026-11-02 用户要求，是两个分开的功能）：字幕栏和课程重点里的截图都能用。
+   crop = [左, 上, 右, 下]（占整张截图的比例），w = 显示宽度（像素，没有 = 自动）。原截图不改：显示时后台按 crop 另裁一张（frames.grab），
+   剪藏时裁好再复制进笔记（doc._small_copy），宽度写成 Obsidian 的 ![[图|宽度]]。字幕截图记在 sub_shots 每一张上，
+   课程重点的图记在 fig_edits {'秒数': {crop, w}}（课程重点重新生成后同一时间的图照样用）。
+   裁剪：对话框 #dlgShotEdit。大小：图下面「大小」弹出滑块（openSizeMenu），拖动时图马上变，不用点确定。 ---------- */
+const SE = { crop: [0, 0, 1, 1] };
+function openShotEdit(t, crop) {
+  return new Promise(resolve => {
+    const dlg = $('#dlgShotEdit'), img = $('#seImg');
+    SE.crop = crop ? crop.slice() : [0, 0, 1, 1];
+    img.removeAttribute('src'); $('#seInfo').textContent = '正在取截图…';
+    img.onload = seDraw;
+    frameUrl(t, false).then(u => { if (u) img.src = u; else $('#seInfo').textContent = '截图取不到'; });
+    seDraw();
+    dlg.returnValue = ''; dlg.showModal();
+    dlg.onclose = () => {
+      if (dlg.returnValue !== 'ok') return resolve(null);
+      const c = SE.crop.map(x => Math.round(x * 10000) / 10000);
+      const full = c[0] <= 0.001 && c[1] <= 0.001 && c[2] >= 0.999 && c[3] >= 0.999;
+      resolve({ crop: full ? null : c });
+    };
+  });
+}
+function seDraw() {
+  const [l, t, r, b] = SE.crop, img = $('#seImg');
+  Object.assign($('#seBox').style, { left: l * 100 + '%', top: t * 100 + '%', width: (r - l) * 100 + '%', height: (b - t) * 100 + '%' });
+  if (img.naturalWidth) $('#seInfo').textContent = `留下 ${Math.round((r - l) * img.naturalWidth)} × ${Math.round((b - t) * img.naturalHeight)} 像素`;
+}
+function bindShotEdit() {
+  const stage = $('#seStage'), MIN = 0.03;
+  let drag = null;
+  const pos = e => { const r = $('#seImg').getBoundingClientRect(); return [clamp((e.clientX - r.left) / r.width, 0, 1), clamp((e.clientY - r.top) / r.height, 0, 1)]; };
+  stage.addEventListener('pointerdown', e => {
+    if (!$('#seImg').naturalWidth) return;
+    e.preventDefault();
+    try { stage.setPointerCapture(e.pointerId); } catch (_) { /* 自测里的假事件没有真的指针 */ }
+    const full = SE.crop[2] - SE.crop[0] > 0.98 && SE.crop[3] - SE.crop[1] > 0.98;  // 框还是整张图时，拖动是画新框
+    drag = { h: e.target.dataset.h || (e.target.closest('#seBox') && !full ? 'move' : 'new'), p: pos(e), c: SE.crop.slice() };
+  });
+  stage.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const [x, y] = pos(e), dx = x - drag.p[0], dy = y - drag.p[1];
+    let [l, t, r, b] = drag.c;
+    if (drag.h === 'new') SE.crop = [Math.min(drag.p[0], x), Math.min(drag.p[1], y), Math.max(drag.p[0], x), Math.max(drag.p[1], y)];
+    else if (drag.h === 'move') { const w = r - l, h = b - t; l = clamp(l + dx, 0, 1 - w); t = clamp(t + dy, 0, 1 - h); SE.crop = [l, t, l + w, t + h]; }
+    else {
+      if (drag.h.includes('w')) l = clamp(l + dx, 0, r - MIN);
+      if (drag.h.includes('e')) r = clamp(r + dx, l + MIN, 1);
+      if (drag.h.includes('n')) t = clamp(t + dy, 0, b - MIN);
+      if (drag.h.includes('s')) b = clamp(b + dy, t + MIN, 1);
+      SE.crop = [l, t, r, b];
+    }
+    seDraw();
+  });
+  const end = () => {
+    if (!drag) return;
+    const [l, t, r, b] = SE.crop;
+    if (r - l < MIN || b - t < MIN) SE.crop = drag.c;  // 只是点了一下：不改
+    drag = null; seDraw();
+  };
+  stage.addEventListener('pointerup', end);
+  stage.addEventListener('pointercancel', end);
+  $('#seFull').onclick = () => { SE.crop = [0, 0, 1, 1]; seDraw(); };
+}
+function setShotProp(o, k, v) { if (v) o[k] = v; else delete o[k]; return o; }  // 没裁剪 / 自动大小就不记
+/* 课程重点的图按秒数记在 fig_edits；什么都没改的去掉 */
+function setFigEdit(t, k, v) {
+  const key = String(t), all = S.doc.fig_edits = S.doc.fig_edits || {};
+  const e = setShotProp(all[key] || {}, k, v);
+  if (Object.keys(e).length) all[key] = e; else delete all[key];
+}
+const SIZE_PRESETS = [['小', 240], ['中', 400], ['大', 600], ['自动', 0]];
+/* 「大小」弹出框：w 现在的宽度（没有 = 自动），cur 图现在实际显示多宽（自动时滑块从这里开始），
+   set(w) 改一张图并马上显示，all(w) 这节课所有图都用这个大小 */
+function openSizeMenu(btn, { w, cur, set, all }) {
+  const r = btn.getBoundingClientRect();
+  const val = w || clamp(Math.round((cur || 480) / 10) * 10, 120, 960);
+  showCtx(r.left, r.bottom + 4, `<div class="menu-label">显示大小（拖动滑块，图马上跟着变）</div>
+    <div class="size-row"><input type="range" data-a="w" min="120" max="960" step="10" value="${val}"><span data-a="lab"></span></div>
+    <div class="size-presets">${SIZE_PRESETS.map(([n, v]) => `<button data-p="${v}" title="${v ? v + ' 像素宽' : '按原来的大小显示'}">${n}</button>`).join('')}</div>
+    <button class="menu-item" data-a="all" title="这节课的所有截图都用这个大小">这节课的图都用这个大小</button>`, m => {
+    let now = w || null;
+    const show = () => {
+      $('[data-a=lab]', m).textContent = now ? `${now} 像素宽` : '自动';
+      $$('[data-p]', m).forEach(b => b.classList.toggle('on', +b.dataset.p === (now || 0)));
+    };
+    const pick = v => { now = v || null; if (now) $('[data-a=w]', m).value = now; set(now); markDirty(); show(); };
+    $('[data-a=w]', m).oninput = e => pick(+e.target.value);
+    $$('[data-p]', m).forEach(b => b.onclick = () => pick(+b.dataset.p));
+    $('[data-a=all]', m).onclick = () => {
+      m.hidden = true; all(now); markDirty();
+      toast(now ? `这节课的图都改成 ${now} 像素宽了` : '这节课的图都恢复成原来的大小了');
+    };
+    show();
+  });
+}
+/* 这节课的图都用同一个大小：课程重点里的每张图、字幕栏的每张截图 */
+function sizeAllShots(w) {
+  const ts = new Set((S.doc.summary || '').split('\n').map(figTime).filter(t => t !== null));
+  ts.forEach(t => setFigEdit(t, 'w', w));
+  (S.doc.sub_shots || []).forEach(x => setShotProp(x, 'w', w));
+  renderSummary(); placeSubShots();
 }
 function shotHTML(f, i) {
   return `<div class="shot" data-k="${i}">
@@ -1818,10 +2347,10 @@ function shotHTML(f, i) {
         <label class="check" title="课程重点里可以插这张图"><input type="checkbox" data-fig ${f.figure ? 'checked' : ''}> 可插图</label>
         ${f.why ? `<span class="why" title="${esc(f.why)}">${esc(f.manual ? '手动截取' : f.why).slice(0, 24)}</span>` : (f.manual ? '<span class="why">手动截取</span>' : '')}
         <span class="grow"></span>
-        ${f.redraw ? '<span class="redraw-tag" title="画面看不清，剪藏时用 AI 重画的图代替截图">AI 重画</span>' : ''}
+        ${f.redraw ? '<span class="redraw-tag" title="剪藏时用 AI 重画的图代替截图">AI 重画</span>' : ''}
         <button data-redo title="让 AI 重新写这张图的说明">重新识别</button>${f.redraw
-          ? '<button data-unredraw title="不用 AI 重画的图，剪藏时插原截图">改用原截图</button>'
-          : '<button data-redraw title="画面看不清时，让 AI 依据老师的讲解重画一张清楚的示意图（标注为 AI辅助理解图）">AI 重画</button>'}<button data-del title="删除这张画面">删除</button></div>
+          ? '<button data-unredraw title="改用原截图">改用原截图</button>'
+          : '<button data-redraw title="让 AI 按老师的讲解重画示意图">AI 重画</button>'}<button data-del title="删除这张画面">删除</button></div>
       <textarea data-note spellcheck="false" placeholder="${f.note === undefined ? '还没有说明，点「补写说明」让 AI 写一句，或者自己写' : ''}">${esc(f.note || '')}</textarea>
       ${f.caption ? `<div class="cap">画面字幕：「${esc(f.caption)}」</div>` : ''}
       ${f.redraw ? `<div class="redraw-box"><div class="cap">${REDRAW_LABEL}${f.redraw.note ? '：' + esc(f.redraw.note) : ''}</div>${redrawHTML(f.redraw)}</div>` : ''}
@@ -1954,7 +2483,8 @@ function renderSummaryStale() {
 function renderSummary() {
   const box = $('#summaryBox');
   const s = S.doc && S.doc.summary;
-  box.innerHTML = s ? md(s) : `<div class="ai-empty">生成字幕后，点「生成课程重点」：<br>AI 按老师这节课的知识体系整理重点，每条标出处时间，<br>再自动对照字幕查漏补缺；剪藏时放在笔记的上半部分。</div>`;
+  S.sumEditing = false; hideSumTools();
+  box.innerHTML = s ? md(s, { lines: true }) : `<div class="ai-empty">生成字幕后，点「生成课程重点」：<br>AI 按老师这节课的知识体系整理重点，每条标出处时间，<br>再自动对照字幕查漏补缺；剪藏时放在笔记的上半部分。</div>`;
   $('#btnSummary').textContent = s ? '重新生成' : '生成课程重点';
   $('#btnCopySummary').disabled = !s;
   $('#btnEditSummary').disabled = !S.doc;
@@ -1963,6 +2493,506 @@ function renderSummary() {
   updateButtons();
   if (s) refreshCoverage();
   hydrateFigures(box);
+  $$('.shot-fig', box).forEach((fig, n) => fig.querySelector('figcaption').insertAdjacentHTML('beforeend',
+    `<span class="fig-tools tts-skip" data-n="${n}"><button data-sf="up" title="挪到上一条重点前面">↑ 上移</button><button data-sf="down" title="挪到下一条重点后面">↓ 下移</button>${fig.querySelector('.redraw-svg, .redraw-code') ? '' : '<button data-sf="crop" title="裁剪">✂ 裁剪</button>'}${fig.querySelector('.redraw-code') ? '' : '<button data-sf="size" title="调整大小">⇲ 大小</button>'}<button data-sf="del" title="从课程重点里删掉这张图">删除</button></span>`));
+}
+/* ---------- 课程重点里手动插截图（2026-11-02 用户要求，和字幕栏的「插入截图」一样）：和 AI 插的图同一种写法，一行 ![[画面 mm:ss]]
+   （剪藏时 doc.place_figures 换成截图）。插在出处时间离视频现在最近（不晚于它）的那一条后面，正在编辑时插在光标那一行后面；
+   图下面「上移 / 下移」= 和上一块 / 下一块（一条重点、一个标题、一张表、一段代码）换位置，「删除」去掉这一行，AI 插的图也能挪。
+   手动插的时间记在 sum_shots：重新生成课程重点时由 doc.keep_sum_shots 放回去（分块和找位置的规则和这里一样，改一边要改另一边）。 ---------- */
+const FIG_LINE = /^\s*!\[\[\s*画面\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*\]\]\s*$/;
+const BLOCK_START = /^\s*([-*+]\s|\d+[.、)]|#{1,6}\s|>|\||```|~~~|!\[\[)/;
+const figTime = line => { const m = line.match(FIG_LINE); return m ? parseTs(m[1]) : null; };
+function sumBlocks(lines) {  // 非空行分成块：[第一行, 最后一行]
+  const out = []; let i = 0;
+  while (i < lines.length) {
+    if (!lines[i].trim()) { i++; continue; }
+    const st = i;
+    if (/^\s*(```|~~~)/.test(lines[i])) { const f = lines[i].trim().slice(0, 3); i++; while (i < lines.length && !lines[i].trim().startsWith(f)) i++; i++; }
+    else if (/^\s*\|/.test(lines[i])) { while (i < lines.length && /^\s*\|/.test(lines[i])) i++; }
+    else if (FIG_LINE.test(lines[i])) i++;
+    else { i++; while (i < lines.length && lines[i].trim() && !BLOCK_START.test(lines[i])) i++; }
+    out.push([st, Math.min(i, lines.length) - 1]);
+  }
+  return out;
+}
+function sumTidy(lines) {  // 连着的空行只留一个（代码块里不动），去掉开头结尾的空行
+  const out = []; let fence = false;
+  for (const l of lines) {
+    if (/^\s*(```|~~~)/.test(l)) fence = !fence;
+    if (!fence && !l.trim() && (!out.length || !out[out.length - 1].trim())) continue;
+    out.push(l);
+  }
+  while (out.length && !out[out.length - 1].trim()) out.pop();
+  return out.join('\n');
+}
+function sumAnchor(lines, t) {  // 插在哪一行后面：出处时间不晚于 t、离 t 最近的那一块；都比 t 晚就放在出处最早的那块前面；没有出处时间放最后
+  let best = null, first = null;
+  for (const [a, b] of sumBlocks(lines)) {
+    if (FIG_LINE.test(lines[a]) || /^\s*(```|~~~)/.test(lines[a])) continue;  // 图、代码块里的时间不算
+    const ts = (lines.slice(a, b + 1).join(' ').match(/(?<![\d:])(?:\d{1,2}:)?\d{1,2}:\d{2}(?![\d:])/g) || []).map(parseTs).filter(x => x !== null);
+    for (const x of ts) {
+      if (x <= t && (!best || x > best.x)) best = { x, end: b };
+      if (!first || x < first.x) first = { x, start: a };
+    }
+  }
+  return best ? best.end : first ? first.start - 1 : lines.length - 1;
+}
+function scrollToSumFig(t) {
+  const n = S.doc.summary.split('\n').filter(l => FIG_LINE.test(l)).findIndex(l => figTime(l) === t);
+  const fig = $$('#summaryBox .shot-fig')[n]; if (fig) fig.scrollIntoView({ block: 'nearest' });
+}
+function insertSumShot() {
+  const v = $('#video');
+  if (!S.doc || !v.getAttribute('src')) return;
+  if (!S.info || !S.info.has_video) return toast('这是音频，没有画面可以截');
+  if (!(S.doc.summary || '').trim()) return toast('还没有课程重点，先生成课程重点再插截图');
+  v.pause();
+  const t = Math.floor(v.currentTime), lines = S.doc.summary.split('\n');
+  if (lines.some(l => figTime(l) === t)) return toast('这个时间已经插过一张了');
+  let at;
+  if (summaryEditing) {  // 编辑时插在光标所在的那一块后面
+    const ed = $('#summaryEdit'), ln = ed.value.slice(0, ed.selectionStart).split('\n').length - 1;
+    const blk = sumBlocks(lines).find(([a, b]) => a <= ln && ln <= b);
+    at = blk ? blk[1] : Math.min(ln, lines.length - 1);
+  } else {
+    at = sumAnchor(lines, t);
+    for (const [a, b] of sumBlocks(lines))  // 那一条后面已经有更早的截图：排在它们后面，按时间先后
+      if (a > at && FIG_LINE.test(lines[a]) && figTime(lines[a]) < t && lines.slice(at + 1, a).every(l => !l.trim())) at = b;
+  }
+  pushSumUndo();
+  lines.splice(at + 1, 0, '', `![[画面 ${fmt(t)}]]`, '');
+  S.doc.summary = sumTidy(lines);
+  S.doc.sum_shots = (S.doc.sum_shots || []).filter(x => x !== t).concat([t]);
+  markDirty();
+  if (summaryEditing) { $('#summaryEdit').value = S.doc.summary; return toast('截图插在光标那一行后面了'); }
+  renderSummary(); scrollToSumFig(t);
+  toast('截图插在出处时间最接近的那一条后面了；位置不对可以点图下面的「上移 / 下移」', { ms: 5000 });
+}
+function moveSumShot(n, act) {  // n：课程重点里从上往下第几张图
+  const lines = S.doc.summary.split('\n'), blocks = sumBlocks(lines);
+  const figs = blocks.map((b, k) => k).filter(k => FIG_LINE.test(lines[blocks[k][0]]));
+  const k = figs[n]; if (k === undefined) return;
+  const li = blocks[k][0], tag = lines[li].trim(), t = figTime(tag);
+  if (act === 'crop') {
+    const f = figShot(t);
+    return openShotEdit(f ? f.t : t, ((S.doc.fig_edits || {})[String(t)] || {}).crop).then(r => {
+      if (r) { setFigEdit(t, 'crop', r.crop); markDirty(); renderSummary(); }
+    });
+  }
+  if (act === 'del') {
+    if (!confirm('从课程重点里删掉这张图？')) return;
+    pushSumUndo();
+    lines.splice(li, 1);
+    S.doc.sum_shots = (S.doc.sum_shots || []).filter(x => x !== t);
+    if (!lines.some(l => figTime(l) === t) && S.doc.fig_edits) delete S.doc.fig_edits[String(t)];
+  } else {
+    const j = act === 'up' ? k - 1 : k + 1;
+    if (j < 0 || j >= blocks.length) return toast(act === 'up' ? '已经在最前面了' : '已经在最后面了');
+    const at = act === 'up' ? blocks[j][0] : blocks[j][1];  // 上移：放到上一块前面；下移：删掉这一行后下一块往前挪了一行，放在它最后一行后面
+    pushSumUndo();
+    lines.splice(li, 1);
+    lines.splice(at, 0, '', tag, '');
+  }
+  S.doc.summary = sumTidy(lines);
+  markDirty(); renderSummary();
+  if (act !== 'del') scrollToSumFig(t);
+}
+/* ---------- 每条重点旁边的小工具（2026-11-02 用户要求：不进「编辑」也能改字、加一条、上移下移、合并、拆分、缩进、删除）。
+   鼠标移到一块（小标题、列表项、段落、表格、代码）上，它右上角出现一排按钮（#sumTools，只有一份，跟着鼠标挪；插图有自己的按钮）。
+   每个操作只改 S.doc.summary 里那几行原文（md(…, {lines: true}) 的 data-l 给出行号），格式符号不会被弄坏；
+   改之前存一份进 S.sumUndo，Ctrl+Z / 提示条上的「撤销」能一步步退回。规则：
+   - 列表项连同它下面缩进的小点算一个单元，移动、删除一起走；没有同一级的上一条 / 下一条时，一级条目可以跨过小标题挪到相邻的小节里。
+   - 小标题连同下面的内容（到同级或更高一级的标题为止）算一节，上移 / 下移整节挪；删除只删标题这一行，内容并到上一节。
+   - 并到上一条：接到上面同一级那一条后面，上一条以标点或出处时间结尾就直接接，否则加「；」；它下面的小点跟着成为上一条的小点。
+   - 缩进：变成上一条（同一级）的小点，缩进量按上一条的符号宽度（「- 」2 格、「1. 」3 格），Obsidian 才认得出层级；取消缩进：回到上一级。 ---------- */
+const ITEM_RE = /^(\s*)([-*+]|\d+[.)])(\s+)(.*)$/;
+const HEAD_RE = /^(#{1,6})\s+(.*)$/;
+const lineW = s => (String(s).match(/^\s*/)[0]).replace(/\t/g, '    ').length;
+const sumLines = () => (S.doc.summary || '').split('\n');
+function pushSumUndo() {
+  S.sumUndo = S.sumUndo || [];
+  S.sumUndo.push(S.doc.summary || '');
+  if (S.sumUndo.length > 60) S.sumUndo.shift();
+  S.undoTarget = 'sum';
+}
+function sumUndo() {
+  if (!S.doc || !(S.sumUndo || []).length) return false;
+  if (summaryEditing) toggleSummaryEdit(false);
+  S.doc.summary = S.sumUndo.pop();
+  markDirty(); renderSummary();
+  toast('已撤销课程重点的上一步修改');
+  return true;
+}
+function setSummary(lines, msg) {  // 写回课程重点；msg：提示（带「撤销」）。小标题前后留一个空行（挪动后可能紧贴着别的行）
+  const out = []; let fence = false;
+  lines.forEach((l, i) => {
+    if (/^\s*(```|~~~)/.test(l)) fence = !fence;
+    const h = !fence && HEAD_RE.test(l);
+    if (h && out.length && out[out.length - 1].trim()) out.push('');
+    out.push(l);
+    if (h && i + 1 < lines.length && lines[i + 1].trim()) out.push('');
+  });
+  S.doc.summary = sumTidy(out);
+  markDirty(); renderSummary();
+  if (msg) toast(msg, { ms: 5000, action: { label: '撤销', run: sumUndo } });
+}
+/* 这一块连同附带的内容到第几行：列表项 = 它和下面缩进更深的行；小标题 = 到同级或更高一级标题之前；其他 = 它自己 */
+function sumUnitEnd(lines, l0, kind, l1) {
+  if (kind === 'item') {
+    const w = lineW(lines[l0]); let end = l0, j = l0 + 1;
+    while (j < lines.length) {
+      if (!lines[j].trim()) {
+        let k = j; while (k < lines.length && !lines[k].trim()) k++;
+        if (k < lines.length && lineW(lines[k]) > w) { j = k; continue; }
+        break;
+      }
+      if (lineW(lines[j]) > w) { end = j; j++; } else break;
+    }
+    return end;
+  }
+  if (kind === 'head') {
+    const h = lines[l0].match(HEAD_RE)[1].length;
+    let j = l0 + 1;
+    while (j < lines.length) { const m = lines[j].match(HEAD_RE); if (m && m[1].length <= h) break; j++; }
+    j--; while (j > l0 && !lines[j].trim()) j--;
+    return j;
+  }
+  return l1;
+}
+const prevNonBlank = (lines, i) => { while (i >= 0 && !lines[i].trim()) i--; return i; };
+const nextNonBlank = (lines, i) => { while (i < lines.length && !lines[i].trim()) i++; return i; };
+/* 上面同一级的那一条（列表项）从第几行开始；没有返回 -1 */
+function prevSibling(lines, l0) {
+  const w = lineW(lines[l0]);
+  for (let k = l0 - 1; k >= 0; k--) {
+    if (!lines[k].trim()) continue;
+    const lw = lineW(lines[k]);
+    if (lw > w) continue;
+    return lw === w && ITEM_RE.test(lines[k]) ? k : -1;
+  }
+  return -1;
+}
+/* 把 [a0..a1] 和紧挨在后面的 [b0..b1] 换位置，中间原来有几个空行还是几个（列表项之间本来没空行就不加，不然 Obsidian 里条目间距变大） */
+function swapRanges(lines, a0, a1, b0, b1) {
+  const A = lines.slice(a0, a1 + 1), gap = lines.slice(a1 + 1, b0), B = lines.slice(b0, b1 + 1);
+  return [...lines.slice(0, a0), ...B, ...gap, ...A, ...lines.slice(b1 + 1)];
+}
+/* 所在的那一块（sumBlocks）从第几行到第几行 */
+const blockAt = (lines, i) => sumBlocks(lines).find(([a, b]) => a <= i && i <= b) || [i, i];
+function sumMove(l0, l1, kind, dir) {
+  const lines = sumLines(), e0 = sumUnitEnd(lines, l0, kind, l1);
+  let out = null;
+  if (kind === 'head') {
+    const h = lines[l0].match(HEAD_RE)[1].length;
+    if (dir < 0) {
+      let k = l0 - 1; while (k >= 0 && !(HEAD_RE.test(lines[k]) && lines[k].match(HEAD_RE)[1].length <= h)) k--;
+      if (k >= 0 && lines[k].match(HEAD_RE)[1].length === h) out = swapRanges(lines, k, prevNonBlank(lines, l0 - 1), l0, e0);
+    } else {
+      const k = nextNonBlank(lines, e0 + 1), m = k < lines.length && lines[k].match(HEAD_RE);
+      if (m && m[1].length === h) out = swapRanges(lines, l0, e0, k, sumUnitEnd(lines, k, 'head'));
+    }
+    if (!out) return toast(dir < 0 ? '这一节已经是同一级里的第一节了' : '这一节已经是同一级里的最后一节了');
+  } else if (kind === 'item') {
+    const w = lineW(lines[l0]);
+    if (dir < 0) {
+      const k = prevSibling(lines, l0);
+      if (k >= 0) out = swapRanges(lines, k, prevNonBlank(lines, l0 - 1), l0, e0);
+      else if (w === 0) {  // 一级条目上面不是同一级的条目（是小标题、段落……）：挪到那一块前面，可以跨小节
+        const p = prevNonBlank(lines, l0 - 1);
+        if (p >= 0) out = swapRanges(lines, blockAt(lines, p)[0], p, l0, e0);
+      }
+    } else {
+      const k = nextNonBlank(lines, e0 + 1);
+      if (k < lines.length && lineW(lines[k]) === w && ITEM_RE.test(lines[k])) out = swapRanges(lines, l0, e0, k, sumUnitEnd(lines, k, 'item'));
+      else if (w === 0 && k < lines.length && lineW(lines[k]) === 0) {
+        const [b0, b1] = blockAt(lines, k);
+        out = swapRanges(lines, l0, e0, b0, ITEM_RE.test(lines[k]) ? sumUnitEnd(lines, k, 'item') : b1);
+      }
+    }
+    if (!out) return toast(dir < 0 ? '已经是这一级的第一条了' : '已经是这一级的最后一条了');
+  } else {
+    const blocks = sumBlocks(lines), i = blocks.findIndex(([a]) => a === l0), o = blocks[i + dir];
+    if (i < 0 || !o) return toast(dir < 0 ? '已经在最前面了' : '已经在最后面了');
+    out = dir < 0 ? swapRanges(lines, o[0], o[1], l0, l1) : swapRanges(lines, l0, l1, o[0], o[1]);
+  }
+  pushSumUndo(); setSummary(out);
+}
+function sumMerge(l0) {
+  const lines = sumLines(), k = prevSibling(lines, l0);
+  if (k < 0) return toast('上面没有同一级的条目，不能合并');
+  const prev = lines[k].replace(/\s+$/, ''), cur = lines[l0].match(ITEM_RE)[4].trim();
+  const join = /[。！？；…．.!?;：:）)】」』"”\]]$/.test(prev) ? '' : '；';
+  pushSumUndo();
+  lines[k] = prev + join + cur;
+  lines.splice(l0, 1);
+  setSummary(lines, '已经并到上一条');
+}
+/* 缩进 / 取消缩进第 l0 行那一条（连同它的小点）：返回改好的各行；做不了返回原因（字符串）。不改 S.doc */
+function indentLines(lines, l0, dir) {
+  const e0 = sumUnitEnd(lines, l0, 'item'), w = lineW(lines[l0]);
+  let to;
+  if (dir > 0) {
+    const k = prevSibling(lines, l0);
+    if (k < 0) return '上面没有同一级的条目，不能再缩进';
+    const m = lines[k].match(ITEM_RE);
+    to = lineW(lines[k]) + m[2].length + m[3].length;
+  } else {
+    if (!w) return '已经是最外一级了';
+    let k = l0 - 1; while (k >= 0 && !(lines[k].trim() && lineW(lines[k]) < w && ITEM_RE.test(lines[k]))) k--;
+    to = k >= 0 ? lineW(lines[k]) : 0;
+  }
+  const d = to - w, out = lines.slice();
+  for (let j = l0; j <= e0; j++) {
+    if (!out[j].trim()) continue;
+    out[j] = ' '.repeat(Math.max(0, lineW(out[j]) + d)) + out[j].replace(/^\s*/, '');
+  }
+  return out;
+}
+function sumIndent(l0, dir) {  // 鼠标停在某一条上按 Tab / Shift+Tab
+  const out = indentLines(sumLines(), l0, dir);
+  if (typeof out === 'string') return toast(out);
+  pushSumUndo(); setSummary(out);
+}
+function sumDelete(l0, l1, kind) {
+  const lines = sumLines();
+  const end = kind === 'item' ? sumUnitEnd(lines, l0, 'item') : kind === 'head' ? l0 : l1;
+  pushSumUndo();
+  lines.splice(l0, end - l0 + 1);
+  setSummary(lines, kind === 'head' ? '已删除这个小标题（下面的内容留着，并到上一节）' : '已删除');
+}
+/* ＋ 在下面加一条：先放一个占位的「…」排出位置，再打开这一条的输入框；没写内容就当没加过 */
+function sumAdd(l0, l1, kind) {
+  const lines = sumLines();
+  let at, ins, nl;  // nl：占位那一行是第几行（前后留空行，免得和下一行连成一段，保存时把下一行也换掉）
+  if (kind === 'item') {
+    const m = lines[l0].match(ITEM_RE), n = parseInt(m[2], 10);
+    at = sumUnitEnd(lines, l0, 'item') + 1;
+    ins = [m[1] + (isNaN(n) ? m[2] : (n + 1) + m[2].slice(-1)) + m[3] + '…']; nl = at;
+  } else if (kind === 'head') { at = l0 + 1; ins = ['', '- …', '']; nl = at + 1; }
+  else { at = l1 + 1; ins = ['', '…', '']; nl = at + 1; }
+  pushSumUndo();
+  lines.splice(at, 0, ...ins);
+  S.doc.summary = lines.join('\n');  // 先不整理空行，行号才对得上
+  renderSummary();
+  const el = $(`#summaryBox [data-l^="${nl}-"]`);
+  if (el) openSumEditor(el, true); else { S.doc.summary = S.sumUndo.pop(); renderSummary(); }
+}
+/* ✎ 改这一条：只把这一块变成输入框。点别处、点「保存」保存；Esc 取消；Shift+Enter 换行（列表项里换行写的每一行变成新的一条）。
+   2026-11-02 用户要求去掉「加一条」「缩进」「取消缩进」按钮、改成按键：Enter = 保存并在下面加一条（新的那一条什么都没写再按 Enter 就结束）；
+   列表项里 Tab = 缩进、Shift+Tab = 取消缩进，编辑框不关、接着打字。init / caret：重新打开时接着用的文字和光标位置 */
+function openSumEditor(el, isNew, split, init, caret) {
+  const [l0, l1] = el.dataset.l.split('-').map(Number), kind = sumKind(el), lines = sumLines();
+  hideSumTools(); S.sumEditing = true;
+  const im = kind === 'item' && lines[l0].match(ITEM_RE), hm = kind === 'head' && lines[l0].match(HEAD_RE);
+  const value = init != null ? init : isNew ? '' : im ? im[4] : hm ? hm[2] : lines.slice(l0, l1 + 1).join('\n');
+  const wrap = document.createElement('div');
+  wrap.className = 'sum-edit tts-skip';
+  wrap.innerHTML = `<textarea spellcheck="false" rows="1"></textarea>
+    <div class="sum-edit-bar"><span class="muted small-text">${split ? '把光标放在要断开的地方，点「在这里拆开」' : 'Enter 保存并在下面加一条　Shift+Enter 换行' + (kind === 'item' ? '　Tab 缩进　Shift+Tab 取消缩进' : '') + '　Esc 取消　点别处保存'}</span><span class="grow"></span>
+    ${kind === 'item' ? `<button data-se="split" class="${split ? 'primary' : ''}">在这里拆开</button>` : ''}<button data-se="cancel">取消</button><button data-se="save" class="${split ? '' : 'primary'}">保存</button></div>`;
+  if (kind === 'item') { el.textContent = ''; el.appendChild(wrap); } else el.replaceWith(wrap);
+  const ta = wrap.querySelector('textarea');
+  ta.value = value;
+  const fit = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 2 + 'px'; };
+  fit(); ta.addEventListener('input', fit);
+  ta.focus(); ta.selectionStart = ta.selectionEnd = caret != null ? caret : split ? Math.floor(value.length / 2) : value.length;
+  let done = false;
+  const retab = dir => {  // Tab / Shift+Tab：先把打的字写进去（空的先放占位），缩进后在同一条上重新打开编辑框
+    done = true; S.sumEditing = false;
+    const cur = sumLines(), m = cur[l0].match(ITEM_RE), text = ta.value.replace(/\s*\n\s*/g, ' ').trim(), pos = ta.selectionStart;
+    cur[l0] = m[1] + m[2] + m[3] + (text || '…');
+    if (!isNew) pushSumUndo();
+    const out = indentLines(cur, l0, dir);
+    if (typeof out === 'string') toast(out);
+    S.doc.summary = (typeof out === 'string' ? cur : out).join('\n');
+    renderSummary();
+    const again = $(`#summaryBox [data-l^="${l0}-"]`);
+    if (again) openSumEditor(again, isNew, false, text, pos);
+  };
+  const finish = (save, cut, next) => {
+    if (done) return; done = true;
+    S.sumEditing = false;
+    const v = cut != null ? ta.value.slice(0, cut) + '\n' + ta.value.slice(cut) : ta.value;
+    const cur = sumLines();
+    let rep;
+    if (kind === 'item') {
+      const m = cur[l0].match(ITEM_RE), n = parseInt(m[2], 10);
+      const parts = v.split('\n').map(t => t.trim().replace(/^([-*+]|\d+[.)])\s+/, '')).filter(Boolean);
+      rep = parts.map((t, i) => m[1] + (isNaN(n) ? m[2] : (n + i) + m[2].slice(-1)) + m[3] + t);
+    } else if (kind === 'head') {
+      const t = v.replace(/\s*\n\s*/g, ' ').trim();
+      rep = t ? [cur[l0].match(HEAD_RE)[1] + ' ' + t] : [];
+    } else rep = v.trim() ? v.replace(/\s+$/, '').split('\n') : [];
+    const old = cur.slice(l0, l1 + 1).join('\n');
+    if (!save || (isNew && !rep.length)) {  // 取消，或者新加的那一条什么都没写：当没加过（连续按 Enter 加条目时，在空的那一条上再按 Enter 就结束）
+      if (isNew) S.doc.summary = S.sumUndo.pop();
+      return renderSummary();
+    }
+    const same = !isNew && rep.join('\n') === old;
+    if (!same) {
+      if (!isNew) pushSumUndo();
+      cur.splice(l0, l1 - l0 + 1, ...rep);
+    }
+    if (next && rep.length) {  // Enter：保存后在下面加一条（先不整理空行，行号才对得上）
+      S.doc.summary = cur.join('\n');
+      const last = l0 + rep.length - 1;
+      return kind === 'head' ? sumAdd(l0, l0, 'head') : sumAdd(kind === 'item' ? last : l0, last, kind);
+    }
+    if (same) return renderSummary();
+    setSummary(cur, !rep.length ? '已删除（内容清空了）' : rep.length > 1 && kind === 'item' ? `已拆成 ${rep.length} 条` : '');
+  };
+  ta.addEventListener('keydown', e => {
+    if (e.isComposing || e.keyCode === 229) return;  // 输入法正在选字时的回车不算
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); finish(true, null, !split); }
+    else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    else if (e.key === 'Tab' && kind === 'item') { e.preventDefault(); retab(e.shiftKey ? -1 : 1); }
+  });
+  ta.addEventListener('blur', () => setTimeout(() => finish(true), 120));
+  wrap.querySelector('.sum-edit-bar').addEventListener('mousedown', e => e.preventDefault());  // 点按钮时输入框不失去焦点
+  wrap.querySelector('.sum-edit-bar').addEventListener('click', e => {
+    const b = e.target.closest('[data-se]'); if (!b) return;
+    if (b.dataset.se === 'split') finish(true, ta.selectionStart);
+    else finish(b.dataset.se === 'save');
+  });
+}
+function sumKind(el) { return el.tagName === 'LI' ? 'item' : /^H[1-6]$/.test(el.tagName) ? 'head' : 'block'; }
+function hideSumTools() { const t = $('#sumTools'); if (t) { t.hidden = true; t._el = null; } }
+/* 鼠标移到某一块上：在它右上角显示这一块能用的按钮 */
+const SUM_ICONS = {
+  edit: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16zM13 7l4 4"/></svg>',
+  up: '<svg viewBox="0 0 24 24"><path d="M12 19V5m-6 6l6-6 6 6"/></svg>',
+  down: '<svg viewBox="0 0 24 24"><path d="M12 5v14m-6-6l6 6 6-6"/></svg>',
+  merge: '<svg viewBox="0 0 24 24"><path d="M5 4h14M12 20V9m-5 5l5-5 5 5"/></svg>',
+  split: ICONS.split,
+  del: ICONS.del,
+};
+function showSumTools(el) {
+  const t = $('#sumTools'), pane = t.parentElement;
+  if (t._el === el && !t.hidden) return;
+  // 只放小图标、不写字（2026-11-02 用户：带文字的一排按钮快把这一行字盖住了；和字幕栏的按钮一样，鼠标停在上面看提示）
+  t.innerHTML = sumToolsHTML(sumKind(el));
+  t._el = el; t.hidden = false;
+  const r = el.getBoundingClientRect(), p = pane.getBoundingClientRect();
+  t.style.top = Math.max(0, r.top - p.top - 2) + 'px';
+  t.style.right = Math.max(4, p.right - r.right) + 'px';
+}
+// kind：item 一条重点 / head 小标题 / 其他（表格、段落）；说明窗口的按钮表也用这一份
+function sumToolsHTML(kind) {
+  const B = (a, title) => `<button data-st="${a}" title="${title}">${SUM_ICONS[a]}</button>`;
+  return B('edit', '编辑这一条')
+    + B('up', kind === 'head' ? '整节上移' : '上移') + B('down', kind === 'head' ? '整节下移' : '下移')
+    + (kind === 'item' ? B('merge', '并到上一条') + B('split', '在光标处拆成两条') : '')
+    + B('del', kind === 'head' ? '删除这个小标题（内容并到上一节）' : kind === 'item' ? '删除这一条' : '删除这一段');
+}
+function bindSumTools() {
+  const box = $('#summaryBox'), pane = box.parentElement;
+  const t = document.createElement('div');
+  t.id = 'sumTools'; t.className = 'sum-tools tts-skip'; t.hidden = true;
+  pane.appendChild(t);
+  box.addEventListener('mouseover', e => {
+    if (S.sumEditing || summaryEditing || S.chatAbort || !S.doc || !(S.doc.summary || '').trim()) return hideSumTools();
+    const el = e.target.closest('#summaryBox [data-l]');
+    if (!el || el.tagName === 'FIGURE' || el.closest('.sum-edit')) return;
+    showSumTools(el);
+  });
+  pane.addEventListener('mouseleave', hideSumTools);
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Tab' || t.hidden || !t._el || !t._el.isConnected || sumKind(t._el) !== 'item' || e.target.closest('input, textarea, select, [contenteditable]')) return;
+    e.preventDefault();
+    const l0 = +t._el.dataset.l.split('-')[0];
+    hideSumTools(); sumIndent(l0, e.shiftKey ? -1 : 1);
+  });
+  box.addEventListener('scroll', hideSumTools, { passive: true });
+  t.addEventListener('click', e => {
+    const b = e.target.closest('[data-st]'), el = t._el; if (!b || !el || !el.isConnected) return;
+    const [l0, l1] = el.dataset.l.split('-').map(Number), kind = sumKind(el), a = b.dataset.st;
+    hideSumTools();
+    if (a === 'edit') openSumEditor(el, false);
+    else if (a === 'split') openSumEditor(el, false, true);
+    else if (a === 'up' || a === 'down') sumMove(l0, l1, kind, a === 'up' ? -1 : 1);
+    else if (a === 'merge') sumMerge(l0);
+    else if (a === 'del') sumDelete(l0, l1, kind);
+  });
+}
+/* 打印、导出 PDF（2026-11-02 用户要求）：课程重点（朗读旁边）和完整字幕（字幕栏上方）各有「打印」「导出 PDF」两个按钮。
+   只印课程名和这一块内容（连同插图），文字黑色、图片原色。sub：标题下面那行小字，html：正文，prepare(box)：给图片填地址，pdf：导出 PDF。
+   打印用 Edge 自带的打印预览（window.print()，铺满窗口、能看预览、选颜色）。用户试过 Windows 自带的小打印窗口（没有预览、
+   看不到颜色选择）后要求换回来；预览开着时点软件右上角的 × 只关预览（print_state → main.on_closing）。导出 PDF 由后台 PrintToPdfAsync 直接存，不弹打印窗口。 */
+async function askPdfPath(sub) {
+  const name = `${(S.doc.title || '猛人灵修').replace(/[\\/:*?"<>|]/g, '_')}（${sub}）.pdf`;
+  return (await api('save_dialog', { ext: 'pdf', name })).path;
+}
+async function systemPrint() {  // 打开打印预览，关掉后才返回（界面自测里换成假的）
+  await api('print_state', { on: true }).catch(() => {});  // 预览开着时点软件右上角的 × 只关预览（main.on_closing）
+  await new Promise(resolve => { window.addEventListener('afterprint', resolve, { once: true }); window.print(); });
+  api('print_state', { on: false }).catch(() => {});
+}
+async function printDoc(sub, html, prepare, pdf) {
+  const path = pdf ? await askPdfPath(sub) : null;
+  if (pdf && !path) return;
+  $$('#printArea').forEach(el => el.remove());
+  const box = document.createElement('div');
+  box.id = 'printArea'; box.className = 'md';
+  box.innerHTML = `<h1>${esc(S.doc.title || sub)}</h1><div class="print-sub">${esc(sub)}</div>${html}`;
+  document.body.appendChild(box);
+  prepare(box);
+  const t0 = Date.now();  // 等插图加载好（最多 8 秒），不然打出来是空框
+  while (Date.now() - t0 < 8000 && $$('img', box).some(img => !img.getAttribute('src') || !img.complete)) await sleep(100);
+  document.body.classList.add('printing');
+  const page = document.createElement('style');  // 页眉：左边日期，中间课程名（太长截短，免得挤成两行），右边「第 n / n 页」
+  page.id = 'printPage';
+  const cssStr = t => '"' + String(t).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n]+/g, ' ') + '"';
+  const d = new Date(), title = S.doc.title || sub;
+  const when = `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const head = 'font-size: 8pt; color: #555;';
+  page.textContent = `@page { margin: 18mm 14mm 12mm;
+    @top-left { content: ${cssStr(when)}; ${head} }
+    @top-center { content: ${cssStr(title.length > 30 ? title.slice(0, 29) + '…' : title)}; ${head} }
+    @top-right { content: "第 " counter(page) " / " counter(pages) " 页"; ${head} }
+    @bottom-center { content: ""; } }`;
+  document.head.appendChild(page);
+  try {
+    if (pdf) {
+      toast('正在导出 PDF…', { ms: 2000 });
+      const r = await api('print_pdf', { path });
+      toast(`已导出 PDF：${r.path}`, { ms: 8000, action: { label: '打开 PDF', run: () => api('open_file', { path: r.path }) } });
+    } else await systemPrint();
+  } catch (e) { fail(e); } finally { document.body.classList.remove('printing'); box.remove(); page.remove(); }
+}
+function printSummary(pdf) {
+  if (!S.doc || !(S.doc.summary || '').trim()) return;
+  return printDoc('课程重点', md(S.settings.print_ts_summary ? S.doc.summary : stripTs(S.doc.summary)), hydrateFigures, pdf);
+}
+/* 打印课程重点时去掉出处时间（2026-11-02 用户：软件里点时间能跳转，印在纸上没用；「带时间」开关可以留着）。
+   只去方括号里的时间 [03:57]、[03:57–04:14]，连着的几个（[03:57]–[04:14]、[01:02]、[03:04]），和括号里只有时间的（（[03:57]）、（03:57））；
+   正文里没加括号的「9:30 开盘」不动；插图那一行（![[画面 03:57]]）、代码块不动 */
+const TS_T = String.raw`\d{1,2}:\d{2}(?::\d{2})?`;
+const TS_ONE = String.raw`\[${TS_T}(?:\s*[-–—~～]\s*${TS_T})?\]`;
+const TS_RUN = String.raw`${TS_ONE}(?:\s*[-–—~～至到、,，]\s*${TS_ONE})*`;
+const TS_STRIP = new RegExp(String.raw`[（(]\s*(?:${TS_RUN}|${TS_T}(?:\s*[-–—~～、,，]\s*${TS_T})*)\s*[）)]|[ \t]*${TS_RUN}`, 'g');
+function stripTs(text) {
+  let fence = false;
+  return String(text || '').split('\n').map(l => {
+    if (/^\s*(```|~~~)/.test(l)) { fence = !fence; return l; }
+    return fence || FIG_LINE.test(l) ? l : l.replace(TS_STRIP, '').replace(/[ \t]+$/, '');
+  }).join('\n');
+}
+/* 完整字幕：和剪藏的「完整字幕」一样排——[时间] 原文、下一行译文、存疑句标原因，插的截图放在挂的那一句下面（按裁剪、大小） */
+function printSubs(pdf) {
+  if (!S.doc || !S.doc.segments.length) return;
+  const shots = {};
+  (S.doc.sub_shots || []).forEach(x => { const i = findIndex(x.at); (shots[i] = shots[i] || []).push(x); });
+  const figs = i => (shots[i] || []).sort((a, b) => a.t - b.t).map(x =>
+    `<figure class="shot-fig" data-pt="${x.t}" data-crop="${x.crop ? x.crop.join(',') : ''}"${x.w ? ` style="max-width:${x.w}px"` : ''}><img alt=""></figure>`).join('');
+  const html = figs(-1) + S.doc.segments.map((s, i) => {
+    const d = doubtOf(s);
+    return `<div class="print-cue">${S.settings.print_ts_subs !== false ? `<span class="print-t">[${fmt(s.start)}]</span> ` : ''}${esc(s.text)}${d ? ` <span class="print-doubt">〔存疑：${esc(d.reason || '')}〕</span>` : ''}`
+      + `${(s.tr || '').trim() ? `<div class="print-tr">${esc(s.tr)}</div>` : ''}</div>${figs(i)}`;
+  }).join('');
+  return printDoc('完整字幕', html, box => $$('[data-pt]', box).forEach(f => {
+    frameUrl(+f.dataset.pt, false, f.dataset.crop ? f.dataset.crop.split(',').map(Number) : null).then(u => { if (u) f.querySelector('img').src = u; });
+  }), pdf);
 }
 /* 字幕有多少被课程重点的出处时间引用到（粗略估计，用来判断有没有大段漏掉） */
 function refreshCoverage() {
@@ -1989,7 +3019,8 @@ function toggleSummaryEdit(on) {
   summaryEditing = on ?? !summaryEditing;
   $('#summaryEdit').hidden = !summaryEditing; $('#summaryBox').hidden = summaryEditing;
   $('#btnEditSummary').textContent = summaryEditing ? '完成编辑' : '编辑';
-  if (summaryEditing) { $('#summaryEdit').value = S.doc.summary || ''; $('#summaryEdit').focus(); }
+  $('#btnEditSummary').classList.toggle('primary', summaryEditing);
+  if (summaryEditing) { pushSumUndo(); $('#summaryEdit').value = S.doc.summary || ''; $('#summaryEdit').focus(); }
   else renderSummary();
 }
 function renderChat() {
@@ -2000,7 +3031,7 @@ function renderChat() {
   box.scrollTop = box.scrollHeight;
 }
 async function streamAI(body, onText) {
-  const { job: id } = await api('chat', body);
+  const { job: id } = await api(body.api || 'chat', body);  // 书的 AI 对话走 book_chat
   let stopped = false;
   S.chatAbort = { abort() { stopped = true; api('cancel', { id }).catch(() => {}); } };
   let text = '', since = 0;
@@ -2144,7 +3175,32 @@ function openSettings(section) {
 function showHelp(sec) {
   $$('#helpNav [data-h]').forEach(b => b.classList.toggle('active', b.dataset.h === sec));
   $$('#helpBody section').forEach(el => el.hidden = el.dataset.h !== sec);
+  $$(`#helpBody section[data-h="${sec}"] .help-btns`).forEach(fillHelpBtns);
   $('#helpBody').scrollTop = 0;
+}
+/* 说明里的「按钮 → 做什么」表（2026-11-02 用户：说明里要有按钮功能）：直接从界面上真实的按钮取图标和提示生成，
+   按钮、提示改了说明自动跟着变，不用两处一起改。data-from = 按钮所在的那一排；data-tpl = 每句 / 每条重点旁边的小工具 */
+const HELP_FACE = { btnDoubts: '存疑 N', btnSummary: '生成课程重点', btnTerms: '新术语 N', btnEditSummary: '编辑', btnSave: '保存' };
+const HELP_TIP = { btnSave: '保存（Ctrl+S；改了会自动保存）' };
+function fillHelpBtns(box) {
+  let els;
+  if (box.dataset.tpl) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = box.dataset.tpl === 'cue' ? cueToolsHTML() : sumToolsHTML(box.dataset.tpl === 'sum-head' ? 'head' : 'item');
+    els = [...tmp.children];
+  } else {
+    const row = $(box.dataset.from);
+    els = row ? $$(':scope > .search, :scope > .btn, :scope > label, :scope > .menu-wrap > .btn', row).filter(el => el.id !== 'loopHint') : [];
+  }
+  box.innerHTML = '<table>' + els.map(el => {
+    const search = el.matches('.search');
+    const tip = search ? '搜索字幕（Enter 跳到下一个）' : HELP_TIP[el.id] || el.title;
+    if (!tip) return '';
+    const icon = el.querySelector('svg, b.aa');
+    const text = HELP_FACE[el.id] || [...el.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join('').trim();
+    const face = (icon ? icon.outerHTML : '') + (search ? '' : esc(text));
+    return `<tr><td><span class="btn small hb-face${el.classList.contains('switch') ? ' hb-switch' : ''}">${face}</span></td><td>${esc(tip)}</td></tr>`;
+  }).join('') + '</table>';
 }
 function showSection(sec) {
   $$('#settingsNav button').forEach(b => b.classList.toggle('active', b.dataset.sec === sec));
@@ -2474,11 +3530,15 @@ function bind() {
     savePrefs({ theme: next }); toast('主题：' + THEMES.find(t => t.id === next).name, { ms: 1200 });
   };
   $('#btnUndo').onclick = undo;
-  const openHelp = sec => { showHelp(sec || 'start'); $('#dlgHelp').showModal(); };
-  $('#btnHelp').onclick = () => openHelp('edit');
+  const openHelp = (sec, focus) => { $('#dlgHelp').classList.toggle('help-focus', !!focus); showHelp(sec || 'start'); $('#dlgHelp').showModal(); };
+  $('#btnHelp').onclick = () => openHelp('area-subs', true);
+  $('#btnAiHelp').onclick = () => openHelp('area-sum', true);
+  $('#helpFull').onclick = () => { $('#dlgHelp').classList.remove('help-focus'); showHelp('start'); };
   $('#btnHelpTop').onclick = () => openHelp(S.mode === 'book' ? 'book' : 'start');
   $('#btnHelp2').onclick = () => openHelp('start');
   $('#helpNav').onclick = e => { const b = e.target.closest('[data-h]'); if (b) showHelp(b.dataset.h); };
+  // 说明里的跳转（界面分区图、「见某某」）：换成完整说明、显示左边目录
+  $('#helpBody').addEventListener('click', e => { const b = e.target.closest('[data-go]'); if (b) { $('#dlgHelp').classList.remove('help-focus'); showHelp(b.dataset.go); } });
   $('#helpClose').onclick = () => $('#dlgHelp').close();
 
   // 文字设置
@@ -2497,6 +3557,28 @@ function bind() {
   $('#txFont').onchange = e => savePrefs({ font_family: e.target.value });
   $('#txTheme').onchange = e => savePrefs({ theme: e.target.value });
   $('#menuText').addEventListener('click', e => e.stopPropagation());
+  // 书的文字设置：整理笔记、原书两列各有一个「Aa」，打开同一个菜单（挪到点的那个按钮下面）
+  $('#bkTxTheme').innerHTML = $('#txTheme').innerHTML;
+  $$('[data-bktx]').forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    const m = $('#menuBookText'), wrap = b.closest('.menu-wrap'), o = !(m.classList.contains('open') && m.parentElement === wrap);
+    closeMenus();
+    if (o) { wrap.appendChild(m); m.classList.add('open'); }
+  });
+  $$('[data-btx]').forEach(b => b.onclick = () => {
+    const [k, d] = b.dataset.btx.split(':'); const delta = +d; const s = S.settings;
+    if (k === 'book_font_size') savePrefs({ book_font_size: clamp((s.book_font_size || 15) + delta, 12, 32) });
+    if (k === 'book_line_height') savePrefs({ book_line_height: +clamp((s.book_line_height || 1.8) + delta, 1.2, 2.8).toFixed(1) });
+    if (k === 'book_gap') savePrefs({ book_gap: clamp((s.book_gap ?? 8) + delta, 0, 40) });
+    if (k === 'book_width') {
+      const col = b.closest('.bk-col'), full = ((col && col.querySelector('.bk-text:not([hidden])')) || $('#bkView')).clientWidth - 32;
+      const next = clamp((s.book_width || full) + delta, 360, 2400);
+      savePrefs({ book_width: next >= full ? 0 : next });
+    }
+  });
+  $('#bkTxFont').onchange = e => savePrefs({ book_font_family: e.target.value });
+  $('#bkTxTheme').onchange = e => savePrefs({ theme: e.target.value });
+  $('#menuBookText').addEventListener('click', e => e.stopPropagation());
 
   // 播放器
   v.addEventListener('timeupdate', () => { updateActive(); if (!v.paused) savePosition(false); });
@@ -2511,6 +3593,8 @@ function bind() {
   $('#speed').onchange = () => v.playbackRate = +$('#speed').value;
   $('#optFollow').onchange = e => savePrefs({ follow: e.target.checked });
   $('#optTr').onchange = e => savePrefs({ show_tr: e.target.checked });
+  $('#optPrintTsSum').onchange = e => savePrefs({ print_ts_summary: e.target.checked });
+  $('#optPrintTsSubs').onchange = e => savePrefs({ print_ts_subs: e.target.checked });
   $('#optOverlay').onchange = e => { savePrefs({ overlay: e.target.checked }); updateActive(true); };
   $('#optLoop').onchange = e => { S.loopIdx = e.target.checked ? (S.active >= 0 ? S.active : null) : null; updateLoopHint(); };
   $('#loopHint').onclick = () => { $('#optLoop').checked = false; S.loopIdx = null; updateLoopHint(); };
@@ -2524,6 +3608,20 @@ function bind() {
   box.addEventListener('wheel', () => S.userScrollAt = Date.now(), { passive: true });
   box.addEventListener('mousedown', () => S.userScrollAt = Date.now());
   box.addEventListener('click', e => {
+    const ss = e.target.closest('.sub-shot');  // 字幕里插的截图：上移 / 下移 / 删除、点图看大图
+    if (ss) {
+      const b = e.target.closest('[data-ss]');
+      if (b && b.dataset.ss === 'size') {  // 不能冒泡到 document：那里的点击会把刚打开的弹出框关掉
+        e.stopPropagation();
+        const k = +ss.dataset.sk, x = S.doc.sub_shots[k];
+        openSizeMenu(b, { w: x.w, cur: ss.querySelector('img').clientWidth, all: sizeAllShots, set: w => {
+          setShotProp(x, 'w', w);
+          ss.classList.toggle('sized', !!w); ss.style.maxWidth = w ? `${w + 2}px` : '';
+        } });
+      } else if (b) moveSubShot(+ss.dataset.sk, b.dataset.ss);
+      else if (e.target.matches('img') && e.target.src) showLightbox(e.target.src);
+      return;
+    }
     const tool = e.target.closest('.cue-tools button');
     const cue = e.target.closest('.cue'); if (!cue) return;
     const i = +cue.dataset.i;
@@ -2560,7 +3658,7 @@ function bind() {
   // 分隔条
   dragger($('#splitter'), 'x', ev => {
     const L = $('#stageMain').getBoundingClientRect();
-    const sideW = S.settings.ai_dock === 'side' && !S.settings.ai_hidden ? $('#aiDockSide').offsetWidth : 0;
+    const sideW = S.settings.ai_dock === 'side' ? $('#aiDockSide').offsetWidth : 0;
     S.settings.split = clamp((ev.clientX - L.left) / (L.width - sideW - 20), 0.2, 0.8);
     applyLayout();
   }, () => savePrefs({ split: +S.settings.split.toFixed(3) }));
@@ -2582,10 +3680,15 @@ function bind() {
   $$('.ai-tabs .tab').forEach(t => t.onclick = () => {
     $$('.ai-tabs .tab').forEach(x => x.classList.toggle('active', x === t));
     $$('.ai-body').forEach(p => p.hidden = p.dataset.pane !== t.dataset.tab);
+    $('#btnPrint').hidden = $('#btnPdf').hidden = $('#optPrintTsSumWrap').hidden = t.dataset.tab !== 'summary';  // 只打印课程重点
   });
   $('#btnAiDock').onclick = () => savePrefs({ ai_dock: S.settings.ai_dock === 'side' ? 'bottom' : 'side' });
-  $('#btnAiHide').onclick = () => savePrefs({ ai_hidden: true });
-  $('#btnShowAi').onclick = () => savePrefs({ ai_hidden: false });
+  // 视频、字幕、AI 区的「隐藏」和缩成的那一条（点它恢复）
+  document.addEventListener('click', e => {
+    const hide = e.target.closest('[data-pane-hide]'), show = e.target.closest('[data-pane-show]');
+    if (hide) setPane(hide.dataset.paneHide, true);
+    else if (show) setPane(show.dataset.paneShow, false);
+  });
   $('#btnAiMax').onclick = () => {
     const s = S.settings;
     if (s.ai_dock === 'side') {
@@ -2620,6 +3723,8 @@ function bind() {
   $('#setSave').onclick = () => saveSettings(true);
   $('#resetTemplate').onclick = () => { $('#summaryTemplate').value = S.defaultTemplate; };
   $$('[data-dir]').forEach(b => b.onclick = () => api('open_dir', { which: b.dataset.dir }).catch(fail));
+  $('#btnCheckUpdate').onclick = () => checkUpdate(false);
+  $('#btnGoDownload').onclick = () => S.update && api('reveal', { target: S.update.url }).catch(fail);
   $('#aboutHome').onclick = e => { e.preventDefault(); api('reveal', { target: 'https://github.com/longpeng1413/mengren-lingxiu' }).catch(fail); };
   $$('[data-test]').forEach(b => b.onclick = async () => {
     const out = b.parentElement.querySelector('.test-result');
@@ -2667,6 +3772,9 @@ function bind() {
   $('#btnDoubts').onclick = nextDoubt;
   $('#btnFrames').onclick = () => { if (!S.job) findFrames(false); };
   $('#btnCapture').onclick = () => { if (!S.job) captureFrame(); };
+  $('#btnSubShot').onclick = () => { if (!S.job) insertSubShot(); };
+  $('#btnSubPrint').onclick = () => printSubs(false);
+  $('#btnSubPdf').onclick = () => printSubs(true);
   $('#btnDescribe').onclick = () => { if (!S.job) describeFrames((S.doc.frames || []).filter(f => !f.note)); };
   $('#btnRecheck').onclick = () => { if (!S.job) recheckDoubts(false); };
   const fb = $('#framesBox');
@@ -2682,8 +3790,22 @@ function bind() {
     if (e.target.matches('[data-unredraw]')) { delete f.redraw; delete f.unclear; renderFrames(); renderSummary(); markDirty(); }
   });
   $('#summaryBox').addEventListener('click', async e => {
+    const b = e.target.closest('.fig-tools [data-sf]');
+    if (b && b.dataset.sf === 'size') {  // 不能冒泡到 document：那里的点击会把刚打开的弹出框关掉
+      e.stopPropagation();
+      const fig = b.closest('.shot-fig'), t = +fig.dataset.ft;
+      openSizeMenu(b, { w: ((S.doc.fig_edits || {})[String(t)] || {}).w, cur: (fig.querySelector('img') || fig).clientWidth, all: sizeAllShots,
+        set: w => { setFigEdit(t, 'w', w); $$(`#summaryBox .shot-fig[data-ft="${t}"]`).forEach(f => f.style.maxWidth = w ? w + 'px' : ''); } });
+      return;
+    }
+    if (b) { if (!S.chatAbort) moveSumShot(+b.parentElement.dataset.n, b.dataset.sf); return; }
     const img = e.target.closest('.shot-fig img'); if (img && img.src) showLightbox(img.src);
   });
+  $('#btnSumShot').onclick = () => { if (!S.chatAbort) insertSumShot(); };
+  $('#btnPrint').onclick = () => printSummary(false);
+  $('#btnPdf').onclick = () => printSummary(true);
+  bindShotEdit();
+  bindSumTools();
   $('#btnReview').onclick = () => { if (!S.job) runReview(); };
   $('#btnTerms').onclick = () => { if (S.job) return; if (S.doc.terms_pending) openTerms(); else findTerms(false); };
   $('#tDelete').onclick = deleteTeacher;
@@ -2773,7 +3895,13 @@ function bind() {
       if (S.doc.segments[i]) { seek(S.doc.segments[i].start, !v.paused); S.loopIdx = i; const el = cueEl(i); if (el) el.scrollIntoView({ block: 'center' }); }
       return;
     }
-    if (ctrl && e.key.toLowerCase() === 'z' && !inField) { e.preventDefault(); undo(); return; }
+    if (ctrl && e.key.toLowerCase() === 'z' && !inField) {  // 撤销最后改的那一边：课程重点（S.sumUndo）还是字幕（S.undo）
+      e.preventDefault();
+      if (S.undoTarget === 'sum') { if (!sumUndo()) undo(); }
+      else if (S.undo.length) undo();
+      else sumUndo();
+      return;
+    }
     if (ctrl && e.key.toLowerCase() === 'f') { e.preventDefault(); $('#search').focus(); return; }
     if (e.key === ' ' && !inField && !e.target.closest('button')) { e.preventDefault(); v.paused ? v.play() : v.pause(); }
   });
@@ -2781,6 +3909,23 @@ function bind() {
 }
 
 /* ---------------------------------------------------------------- 启动 ---- */
+/* 检查更新（2026-11-02 用户：完整的自动升级先不做，有新版本就让用户自己去 GitHub 下载页下载）。
+   auto：打开软件时自动检查（设置 update_auto，每天最多一次，后台记 update_checked）；没有新版本、查不了时都不打扰 */
+async function checkUpdate(auto) {
+  const info = $('#updateInfo');
+  if (!auto) { info.textContent = '正在检查…'; $('#btnCheckUpdate').disabled = true; }
+  try {
+    const r = await api('check_update', { auto: !!auto });
+    S.update = r;
+    $('#btnGoDownload').hidden = !r.newer;
+    $('#updateNotes').hidden = !(r.newer && r.notes);
+    if (r.newer && r.notes) $('#updateNotesBody').innerHTML = md(r.notes);
+    info.textContent = r.newer ? `有新版本 ${r.latest}（${r.date} 发布），你现在用的是 ${r.current || '开发版'}` : `已经是最新版本（${r.current || '开发版'}）`;
+    if (r.newer && auto) toast(`猛人灵修有新版本 ${r.latest}，可以去 GitHub 下载`, { ms: 15000, action: { label: '去下载页', run: () => api('reveal', { target: r.url }) } });
+  } catch (e) {
+    if (!auto) info.textContent = e.message;
+  } finally { $('#btnCheckUpdate').disabled = false; }
+}
 (async function init() {
   bind();
   await bridgeReady();
@@ -2793,4 +3938,6 @@ function bind() {
   }).catch(() => {});
   $('#stageMain').hidden = true; $('#empty').hidden = false;
   updateButtons();
+  const today = new Date().toLocaleDateString('sv');  // 2026-11-02 这种写法，和后台记的一样
+  if (S.settings && S.settings.update_auto !== false && S.settings.update_checked !== today) setTimeout(() => checkUpdate(true), 8000);
 })();

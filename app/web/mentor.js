@@ -12,13 +12,16 @@ const M = { list: [], cur: null, chat: null, job: null, searchHits: null, quotes
 const roundOn = () => typeof R !== 'undefined' && !!R.mode;  // 正在看圆桌讨论或主题蒸馏（round.js）
 S.view = 'course';
 
-/* ---------- 课程 / 老师 切换 ---------- */
+/* ---------- 书籍 / 课程 / 老师 切换（2026-10-29 加「书籍」：媒体库里的书和视频分开列，功能不变） ---------- */
 function switchView(v) {
   if (S.view === v) return;
+  const was = S.view;
   S.view = v;
   $$('#libTabs .lib-tab').forEach(b => b.classList.toggle('active', b.dataset.view === v));
-  $$('.course-only').forEach(el => { el.hidden = v !== 'course'; });
+  $$('.course-only').forEach(el => { el.hidden = v === 'mentor'; });  // 书籍、课程共用媒体库那一套（文件夹按钮、筛选、列表）
   $$('.mentor-only').forEach(el => { el.hidden = v !== 'mentor'; });
+  if (v !== 'mentor') { $('#libSearch').placeholder = v === 'book' ? '筛选书名' : '筛选文件名'; renderLibrary(); }
+  if (was !== 'mentor' && v !== 'mentor') return;  // 书籍 ↔ 课程：只换左边的列表，右边正在看的不动
   if (typeof TTS !== 'undefined') TTS.stop();
   const mentor = v === 'mentor';
   $('#mentorMain').hidden = !mentor;
@@ -157,7 +160,7 @@ function renderMentorMsgs() {
       <p>${run ? '正在后台蒸馏，进度在上方。可以切到「课程」照常看课，做完会提示你。' : '还没蒸馏完（可能停下了，或者 AI 额度用完了）。做完的资料都存着，点「继续蒸馏」接着做，不会重复花钱。'}
       蒸馏好以后，就能在这里和他对话。</p>
       <ul class="ds-status">${st.lessons.map(x => `<li><span>${x.sid}　${esc(x.title)}</span><span class="muted">${label[x.state](x)}</span>`
-        + (run ? '' : `<button class="btn small" data-rm-sid="${x.sid}" title="这份资料不用了（编号空着，不给别的资料用）">去掉</button>`) + '</li>').join('')}</ul>
+        + (run ? '' : `<button class="btn small" data-rm-sid="${x.sid}" title="去掉这份资料">去掉</button>`) + '</li>').join('')}</ul>
       ${run ? '' : '<button class="btn primary" data-distill-go>继续蒸馏</button> <button class="btn" data-distill-edit>加资料…</button>'}</div>`;
     return;
   }
@@ -291,11 +294,11 @@ $('#mentorMsgs').addEventListener('mouseover', async e => {
 $('#mentorAdd').onclick = e => {
   e.stopPropagation();  // 不然窗口的 click 会马上关掉刚打开的菜单
   const r = e.currentTarget.getBoundingClientRect();
-  showCtx(r.left, r.bottom + 4, `<button class="menu-item" data-a="distill" title="AI 逐份提取观点、原话、比喻和故事、问答，再合并成课程蒸馏、写老师画像，写进 Obsidian 的「灵修老师」">从媒体库的课和文章蒸馏一位新老师…</button>
-    <button class="menu-item" data-a="import" title="Obsidian「灵修老师」里已经有观点库和老师画像的老师文件夹">导入已经蒸馏好的老师文件夹…</button>
+  showCtx(r.left, r.bottom + 4, `<button class="menu-item" data-a="distill" title="从媒体库的课和文章蒸馏一位新老师">从媒体库的课和文章蒸馏一位新老师…</button>
+    <button class="menu-item" data-a="import" title="导入 Obsidian「灵修老师」里已经蒸馏好的老师文件夹">导入已经蒸馏好的老师文件夹…</button>
     <div class="menu-sep"></div>
-    <button class="menu-item" data-a="round" title="就一个问题请几位老师一起讨论：各自回答、可以互相回应，AI 总结共识和分歧">新建圆桌讨论（几位老师一起讨论）…</button>
-    <button class="menu-item" data-a="topic" title="选一个主题和几位老师，AI 比较他们分别怎么说，写进 Obsidian 的「灵修主题」">新建主题蒸馏（比较几位老师）…</button>`, m => {
+    <button class="menu-item" data-a="round" title="几位老师一起讨论一个问题">新建圆桌讨论（几位老师一起讨论）…</button>
+    <button class="menu-item" data-a="topic" title="比较几位老师对一个主题的说法">新建主题蒸馏（比较几位老师）…</button>`, m => {
     $('[data-a=distill]', m).onclick = () => { m.hidden = true; openDistill({}); };
     $('[data-a=import]', m).onclick = () => { m.hidden = true; importMentor(); };
     $('[data-a=round]', m).onclick = () => { m.hidden = true; openMulti('round'); };

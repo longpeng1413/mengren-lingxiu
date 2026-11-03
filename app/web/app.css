@@ -144,11 +144,31 @@ body.dragging-row, body.dragging-row * { cursor: row-resize !important; user-sel
 .ai-dock-side { width: 440px; min-width: 280px; flex: none; display: flex; padding: 12px 12px 12px 0; min-height: 0; }
 .ai-dock-side:empty, .ai-dock-bottom:empty { display: none; }
 /* AI 在右侧或隐藏时，视频占满左栏 */
-.stage-main.ai-side .player-area, .stage-main.ai-hidden .player-area { flex: 1; }
-.stage-main.ai-side .hsplit, .stage-main.ai-hidden .hsplit { display: none; }
-.stage-main:not(.ai-side) #aiSplit, .stage-main.ai-hidden #aiSplit { display: none; }
+.stage-main.ai-side .player-area, .stage-main:not(.ai-side).ai-collapsed .player-area { flex: 1; }
+.stage-main.ai-side .hsplit, .stage-main.ai-collapsed .hsplit, .stage-main.video-hidden .hsplit { display: none; }
+.stage-main:not(.ai-side) #aiSplit, .stage-main.ai-collapsed #aiSplit, .stage-main.left-rail.subs-hidden #aiSplit { display: none; }
 .stage-main.ai-side .right { padding-right: 0; }
-.stage-main:not(.ai-side) .right, .stage-main.ai-hidden .right { padding-right: 12px; }
+.stage-main:not(.ai-side) .right { padding-right: 12px; }
+/* 视频、字幕、AI 区都能隐藏（2026-11-02 用户要求，和书籍一样）：隐藏的那块缩成一条（.pane-collapsed），点它恢复。
+   左边上下叠着的视频、AI 区缩成横条；字幕栏、右侧的 AI 区、整个左边都隐藏时缩成竖条 */
+.pane-rail { display: none; }
+.pane-collapsed > :not(.pane-rail) { display: none !important; }
+.pane-collapsed > .pane-rail { display: flex; align-items: center; justify-content: center; flex: 1; width: 100%; min-height: 0; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel2); color: var(--muted); cursor: pointer; font-size: 13px; letter-spacing: 4px; padding: 0 12px; }
+.pane-collapsed > .pane-rail:hover { color: var(--accent); background: var(--accent-weak); }
+.pane-collapsed > .pane-rail::before { content: "▸ "; }
+.player-area.pane-collapsed { flex: 0 0 34px !important; }
+.stage-main:not(.ai-side).ai-collapsed .ai-dock-bottom { flex: 0 0 34px; }
+.ai-panel.pane-collapsed { border: 0; background: transparent; }
+.stage-main.subs-hidden .right { flex: 0 0 34px; width: 34px; min-width: 34px; padding-right: 0; }
+.stage-main.subs-hidden:not(.ai-side) .right { padding-right: 12px; flex-basis: 46px; width: 46px; min-width: 46px; }
+.stage-main.subs-hidden .left:not(.x) { flex: 1; width: auto !important; }
+.stage-main.left-rail .left { flex: 0 0 36px !important; width: 36px !important; min-width: 36px; }
+.stage-main.left-rail .player-area, .stage-main.left-rail .ai-dock-bottom { flex: 1 1 0 !important; }
+.stage-main.ai-side.ai-collapsed .ai-dock-side { width: 46px !important; min-width: 46px; }
+.stage-main.left-rail.subs-hidden .ai-dock-side { flex: 1; width: auto !important; }
+.stage-main.subs-hidden #splitter, .stage-main.left-rail #splitter { display: none; }
+.right.pane-collapsed > .pane-rail, .stage-main.left-rail .pane-rail, .stage-main.ai-side .ai-panel.pane-collapsed > .pane-rail { writing-mode: vertical-rl; padding: 12px 0; }
 
 .player-wrap { position: relative; background: #000; border-radius: 10px; overflow: hidden; flex: 1; min-height: 120px; display: flex; }
 .player-wrap video { display: block; width: 100%; height: 100%; background: #000; object-fit: contain; }
@@ -262,6 +282,23 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .md p { margin: .45em 0; }
 .md ul, .md ol { margin: .4em 0; padding-left: 1.4em; }
 .md li { margin: .2em 0; }
+/* 缩进的小点（2026-11-02）：按层级往右缩，第二级用空心圆点 */
+.md li.lvl-1 { margin-left: 1.4em; list-style-type: circle; } .md li.lvl-2 { margin-left: 2.8em; list-style-type: square; }
+.md li.lvl-3, .md li.lvl-4 { margin-left: 4.2em; list-style-type: square; }
+/* 每条重点旁边的小工具（2026-11-02）：鼠标移到一块上，它右上角出现一排按钮 */
+.ai-body { position: relative; }
+/* 和字幕栏每句右边的按钮一个样子：24 像素的小图标按钮排成一排，鼠标停在上面看提示 */
+.sum-tools { position: absolute; z-index: 5; display: flex; gap: 3px; padding: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.sum-tools[hidden] { display: none; }
+.sum-tools button { width: 24px; height: 24px; display: grid; place-items: center; padding: 0; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; color: var(--muted); }
+.sum-tools svg { width: 13px; height: 13px; }
+.sum-tools button:hover { color: var(--accent); border-color: var(--accent-line); }
+.sum-tools button[data-st="del"]:hover { color: var(--danger); border-color: var(--danger); }
+.sum-edit { margin: .3em 0; }
+.sum-edit textarea { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; line-height: 1.7; padding: 6px 8px; color: var(--text); background: var(--panel2); border: 1px solid var(--accent-line); border-radius: 8px; outline: none; }
+.sum-edit-bar { display: flex; align-items: center; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+.sum-edit-bar button { border: 1px solid var(--line); background: var(--panel2); color: var(--text); border-radius: 6px; padding: 2px 9px; font-size: 12px; cursor: pointer; }
+.sum-edit-bar button.primary { background: var(--accent); border-color: var(--accent); color: #111; }
 .md pre { background: var(--panel2); padding: 10px; border-radius: 8px; overflow-x: auto; }
 .md pre code { background: none; padding: 0; }
 .md table { border-collapse: collapse; margin: .6em 0; font-size: .95em; width: 100%; }
@@ -272,12 +309,26 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .tslink:hover { text-decoration: underline; }
 
 /* ---------- 字幕列表 ---------- */
-.sub-head { display: flex; align-items: center; gap: 8px 10px; padding: 0 0 10px 4px; flex: none; flex-wrap: wrap; }
+.sub-head { display: flex; align-items: center; gap: 8px 3px; padding: 0 0 10px 4px; flex: none; flex-wrap: wrap; }
+/* 标题栏的小图标按钮挨紧一点（2026-11-02 用户：省标题栏的地方）；文字和开关旁边留出空 */
+.sub-head .btn.icon-only, .ai-tabs .btn.icon-only { padding: 0 6px; }
+.sub-head .search, .sub-head .switch, .sub-head #cueCount { margin-right: 6px; }
 .search { display: flex; align-items: center; gap: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 0 10px; height: 32px; flex: 0 1 240px; min-width: 130px; color: var(--muted); }
 .search input { flex: 1; border: 0; outline: 0; background: none; min-width: 0; color: var(--text); }
 .search:focus-within { border-color: var(--accent-line); }
 .cues { flex: 1; overflow-y: auto; min-height: 0; padding: 4px 6px 40vh 0; scroll-behavior: smooth; }
 .cues-inner { max-width: var(--cue-width); }
+/* 字幕里手动插的截图：缩进到和字幕文字对齐，下面一排「上移 / 下移 / 删除」 */
+.sub-shot { margin: 4px 62px 8px 94px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel2); }
+.sub-shot img { display: block; width: 100%; max-height: 360px; object-fit: contain; background: #000; cursor: zoom-in; min-height: 60px; }
+.sub-shot-bar { display: flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 12px; color: var(--muted); }
+.sub-shot-bar button { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 6px; padding: 2px 8px; font-size: 12px; cursor: pointer; }
+.sub-shot-bar button:hover { border-color: var(--accent-line); color: var(--accent); }
+.sub-shot-bar button[data-ss="del"]:hover { color: var(--danger); border-color: var(--danger); }
+.btn.video-shot svg { width: 15px; height: 15px; }
+.book-fig { margin: .8em 0; text-align: center; }
+.book-fig img { max-width: 100%; max-height: 520px; border-radius: 6px; background: #fff; cursor: zoom-in; min-height: 40px; }
+.book-fig figcaption { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .cues-empty { text-align: center; color: var(--muted); margin-top: 18vh; line-height: 2; }
 .cue { position: relative; display: grid; grid-template-columns: 74px 1fr; gap: 4px 12px; padding: var(--cue-gap) 62px var(--cue-gap) 8px; border-radius: 10px; border: 1px solid transparent; transition: background .15s, border-color .15s; }
 .cue:hover { background: var(--panel); }
@@ -297,8 +348,8 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .tr[data-ph=""]:empty:not(:focus) { display: none; }  /* 中文课这句没有译文：不留空行，否则开着「译文」时句子之间多出一行高 */
 .src:focus, .tr:focus { background: var(--panel2); box-shadow: 0 0 0 1px var(--accent-line); color: var(--text); }
 .tr:empty::before { content: attr(data-ph); color: var(--line); }
-/* 工具按钮排成 2×2，尽量不超出一行的高度；超出的部分也要盖在下一句上面，否则鼠标移过去会变成下一句的按钮 */
-.cue-tools { position: absolute; right: 6px; top: 4px; display: none; grid-template-columns: 24px 24px; gap: 2px; }
+/* 工具按钮排成一排、上下居中（2026-11-02 用户要求，以前是 2×2 两排），带底色盖住这一句右边一小段字，只在鼠标移上去时出现 */
+.cue-tools { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); display: none; grid-auto-flow: column; grid-auto-columns: 24px; gap: 3px; padding: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
 .cue:focus-within { z-index: 2; }
 .cue:hover { z-index: 3; }
 .cue:hover .cue-tools, .cue:focus-within .cue-tools { display: grid; }
@@ -367,8 +418,7 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .settings-nav button { text-align: left; background: none; border: 0; border-left: 3px solid transparent; padding: 7px 10px 7px 17px; border-radius: 7px; cursor: pointer; color: color-mix(in srgb, var(--text) 78%, var(--muted)); }
 .settings-nav button:hover { background: var(--hover); color: var(--text); }
 .settings-nav button.active { background: var(--accent-weak); border-left-color: var(--accent); color: var(--text); font-weight: 600; }
-.settings-nav button .state { float: right; font-size: 11px; color: var(--ok); }
-.settings-body { flex: 1; overflow-y: auto; padding: 18px 24px; }
+.settings-nav button .state { float: right; font-size: 11px; color: var(--ok); }.settings-body { flex: 1; overflow-y: auto; padding: 18px 24px; }
 .settings-body h3, .help-body h3 { margin: 0 0 14px; padding-bottom: 8px; border-bottom: 2px solid var(--accent-line); color: var(--accent); }
 .settings-btns { margin: 0; padding: 12px 18px; border-top: 1px solid var(--line); }
 .theme-pick, .accent-pick { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -413,7 +463,66 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .shot .cap { font-size: 12px; color: var(--muted); margin-top: 3px; }
 .shot.busy textarea { opacity: .5; }
 .shot-fig { margin: 8px 0 12px; max-width: 560px; }
-.shot-fig figcaption { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.shot-fig figcaption { font-size: 12px; color: var(--muted); margin-top: 3px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+/* 课程重点里的图：上移 / 下移 / 删除（2026-11-02） */
+.fig-tools { margin-left: auto; display: inline-flex; gap: 4px; }
+.fig-tools button { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 6px; padding: 1px 8px; font-size: 12px; cursor: pointer; }
+.fig-tools button:hover { border-color: var(--accent-line); color: var(--accent); }
+.fig-tools button[data-sf="del"]:hover { color: var(--danger); border-color: var(--danger); }
+/* 编辑截图：裁剪、调整大小（2026-11-02） */
+.shot-edit-dlg { max-width: 96vw; }
+.se-tip { margin: -8px 0 10px; }
+.se-wrap { display: flex; justify-content: center; background: #000; border-radius: 8px; padding: 8px; }
+.se-stage { position: relative; display: inline-block; user-select: none; touch-action: none; cursor: crosshair; overflow: hidden; }
+.se-stage img { display: block; max-width: min(82vw, 960px); max-height: 60vh; min-width: 200px; min-height: 120px; }
+.se-box { position: absolute; box-shadow: 0 0 0 9999px rgba(0,0,0,.6); outline: 2px solid var(--accent); cursor: move; }
+.se-box i { position: absolute; width: 12px; height: 12px; background: var(--accent); border: 2px solid #fff; border-radius: 3px; box-sizing: border-box; }
+.se-box i[data-h="nw"] { left: -7px; top: -7px; cursor: nwse-resize; }
+.se-box i[data-h="n"] { left: calc(50% - 6px); top: -7px; cursor: ns-resize; }
+.se-box i[data-h="ne"] { right: -7px; top: -7px; cursor: nesw-resize; }
+.se-box i[data-h="e"] { right: -7px; top: calc(50% - 6px); cursor: ew-resize; }
+.se-box i[data-h="se"] { right: -7px; bottom: -7px; cursor: nwse-resize; }
+.se-box i[data-h="s"] { left: calc(50% - 6px); bottom: -7px; cursor: ns-resize; }
+.se-box i[data-h="sw"] { left: -7px; bottom: -7px; cursor: nesw-resize; }
+.se-box i[data-h="w"] { left: -7px; top: calc(50% - 6px); cursor: ew-resize; }
+/* 检查更新（2026-11-02） */
+.update-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.update-notes { margin: 0 0 10px; font-size: 13px; }
+.update-notes summary { cursor: pointer; color: var(--muted); }
+.update-notes .md { max-height: 220px; overflow: auto; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; margin-top: 6px; }
+/* 图的「大小」弹出框：拖滑块马上看到效果 */
+.size-row { display: flex; align-items: center; gap: 8px; padding: 4px 10px; }
+.size-row input[type=range] { width: 200px; }
+.size-row span { min-width: 76px; font-size: 12px; color: var(--muted); }
+.size-presets { display: flex; gap: 6px; padding: 4px 10px 6px; }
+.size-presets button { flex: 1; border: 1px solid var(--line); background: var(--panel2); color: var(--text); border-radius: 6px; padding: 3px 0; cursor: pointer; font-size: 12px; }
+.size-presets button:hover, .size-presets button.on { border-color: var(--accent-line); color: var(--accent); }
+.sub-shot-bar { flex-wrap: wrap; }
+.sub-shot.sized img { max-height: none; }
+/* 打印课程重点（2026-11-02）：平时不显示；打印时只印它，白底黑字 */
+#printArea { display: none; }
+/* 打印的页眉页码（2026-11-02）：页码印在页眉右边，左边日期、中间课程名，由 printDoc 打印时现场写进 #printPage（见 app.js）。
+   用户实测：页眉印得出来，印在底部的页码被打印机切掉了（底部印不到的那一条比顶部宽），所以下边距放小、上边距稍大，上下空白差不多。
+   底部放一个空的区域：打印预览里勾了「页眉和页脚」也不会再印出文件地址。这里是没走 printDoc 时的保底 */
+@page { margin: 18mm 14mm 12mm; @bottom-center { content: ""; } }
+@media print {
+  html, body.printing { height: auto !important; overflow: visible !important; background: #fff !important; display: block !important; }
+  body.printing > *:not(#printArea) { display: none !important; }
+  body.printing #printArea { display: block; color: #111; background: #fff; font: 11pt/1.75 var(--font); padding: 0;
+    --text: #111; --muted: #555; --accent: #222; --line: #bbb; --panel2: #f2f2f2; --panel: #fff; }
+  #printArea h1 { font-size: 18pt; margin: 0 0 2pt; color: #000; }
+  #printArea .print-sub { color: #666; font-size: 10pt; margin-bottom: 12pt; border-bottom: 1px solid #bbb; padding-bottom: 6pt; }
+  #printArea h2, #printArea h3 { color: #000; break-after: avoid; }
+  #printArea .tslink { color: #444; }
+  #printArea .shot-fig { max-width: 100%; break-inside: avoid; }
+  #printArea .shot-fig img, #printArea .redraw-svg { max-width: 14cm; }
+  #printArea table { border-collapse: collapse; }
+  #printArea th, #printArea td { border: 1px solid #bbb; }
+  #printArea .print-cue { margin: 0 0 3pt; break-inside: avoid; }
+  #printArea .print-t { color: #777; font: 9pt var(--mono); }
+  #printArea .print-tr { color: #555; padding-left: 4.2em; }
+  #printArea .print-doubt { color: #9a5a00; font-size: 9pt; }
+}
 /* AI辅助理解图：SVG 白底显示；Mermaid 显示代码 */
 .redraw-svg { width: 100%; max-width: 560px; background: #fff; border-radius: 6px; display: block; cursor: zoom-in; }
 .redraw-code { font-size: 12px; line-height: 1.5; background: var(--panel2); border: 1px dashed var(--line); border-radius: 6px; padding: 8px 10px; white-space: pre-wrap; margin: 0; }
@@ -422,31 +531,81 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .lightbox { position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,.85); display: grid; place-items: center; cursor: zoom-out; }
 .lightbox img { max-width: 96vw; max-height: 94vh; border-radius: 6px; }
 /* 书籍和文档 */
+/* 书：三列（原书、目录、整理笔记），每列有标题栏和边框；隐藏的列缩成一条竖条（.collapsed），点竖条恢复 */
 .stage-book { flex: 1; display: flex; min-width: 0; min-height: 0; padding: 0 12px 12px 0; }
-.book-left { width: 46%; min-width: 260px; display: flex; flex-direction: column; background: var(--panel2); border-radius: 10px; overflow: hidden; }
-.book-left iframe { flex: 1; border: 0; width: 100%; background: #fff; }
+.bk-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
+.bk-src { flex: 0 0 auto; width: 40%; min-width: 240px; }
+.bk-toc { flex: 0 0 auto; width: 300px; min-width: 210px; }
+.bk-note { flex: 1 1 0; min-width: 300px; }
+.stage-book.note-hidden .bk-src:not(.collapsed) { flex: 1 1 0; width: auto !important; }
+.stage-book.note-hidden.src-hidden .bk-toc:not(.collapsed) { flex: 1 1 0; width: auto !important; }
+.bk-col-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 10px; background: var(--panel2); border-bottom: 1px solid var(--line); flex: none; }
+.bk-col-name { font-size: 14px; padding-left: 8px; border-left: 3px solid var(--accent); margin-right: 4px; }
+.bk-col-body { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.bk-col-body iframe { flex: 1; border: 0; width: 100%; background: #fff; }
+.bk-rail { display: none; }
+.bk-col.collapsed { flex: 0 0 34px !important; width: 34px !important; min-width: 34px; }
+.bk-col.collapsed > :not(.bk-rail) { display: none !important; }
+.bk-col.collapsed .bk-rail { display: block; flex: 1; width: 100%; border: 0; background: var(--panel2); color: var(--muted); cursor: pointer; writing-mode: vertical-rl; letter-spacing: 4px; font-size: 13px; padding: 12px 0; }
+.bk-col.collapsed .bk-rail:hover { color: var(--accent); background: var(--accent-weak); }
+.bk-col.collapsed .bk-rail::before { content: "▸ "; }
+.stage-book .splitter[hidden] { display: none; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.seg button { border: 0; background: transparent; color: var(--muted); padding: 3px 9px; font-size: 12px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: var(--accent-weak); color: var(--accent); }
 .book-text { flex: 1; overflow-y: auto; padding: 16px 20px; font: 14px/1.8 var(--cue-font); }
 .book-text .bpage { border-bottom: 1px dashed var(--line); padding: 10px 0 14px; white-space: pre-wrap; }
 .book-text .bpage .bref { display: block; color: var(--accent); font-size: 12px; margin-bottom: 4px; }
 .book-text .bpage img { max-width: 100%; margin: 8px 0; border-radius: 6px; }
-.book-right { flex: 1; min-width: 360px; display: flex; flex-direction: column; min-height: 0; padding-left: 4px; }
-.book-meta { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 10px; }
-.book-meta .field { margin: 0; }
-.book-bar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 10px 0 4px; }
-.book-info { margin: 2px 0 8px; }
-.book-body { flex: 1; min-height: 0; display: grid; grid-template-rows: minmax(110px, 34%) 1fr; gap: 8px; }
-.chapter-list { overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; }
-.ch-row { display: grid; grid-template-columns: 22px 1fr 64px 64px auto; gap: 6px; align-items: center; padding: 5px 8px; border-bottom: 1px solid var(--line); cursor: pointer; }
-.ch-row.active { background: var(--accent-weak); }
-.ch-row input[type=text], .ch-row input[type=number] { padding: 3px 6px; font-size: 13px; min-width: 0; }
-.ch-row .ch-state { font-size: 12px; white-space: nowrap; color: var(--muted); }
+/* 书的文字设置（Aa）：整理笔记和原文文字版共用，和字幕分开 */
+.bk-text { font-size: var(--bk-size, 15px); line-height: var(--bk-line, 1.8); font-family: var(--bk-font); }
+.bk-text > *, .bk-text .bpage > * { max-width: var(--bk-width, none); margin-left: auto !important; margin-right: auto !important; }  /* 列表、表格自己的左右边距也让位给居中 */
+.bk-text p, .bk-text .bpage p { margin-top: 0; margin-bottom: var(--bk-gap, 8px); }
+.bk-text li { margin-bottom: calc(var(--bk-gap, 8px) / 2); }
+.bk-col-head .menu-wrap .menu { top: 34px; }
+.text-menu .hint { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.book-read .bpage { white-space: normal; }
+.book-read .bpage p { margin: 0 0 .6em; }
+.book-read h3 { margin: 0 0 8px; font-size: 15px; }
+.book-read .bpage .bref { display: inline-block; text-decoration: none; }
+.book-read .bfig { margin: 6px 0 4px; padding: 8px; border: 1px dashed var(--line); border-radius: 8px; }
+.book-read .bfig-img { display: block; max-width: 100%; margin-top: 6px; border-radius: 6px; cursor: zoom-in; background: #fff; }
+.bk-toc-body { overflow-y: auto; }
+.bk-meta { border-bottom: 1px solid var(--line); padding: 6px 10px; flex: none; }
+.bk-meta summary { cursor: pointer; font-size: 13px; display: flex; gap: 6px; align-items: baseline; list-style: none; }
+.bk-meta summary::-webkit-details-marker { display: none; }
+.bk-meta summary b { flex: none; font-weight: 600; }
+.bk-meta summary b::before { content: "▸ "; color: var(--muted); }
+.bk-meta[open] summary b::before { content: "▾ "; }
+.bk-meta summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.bk-meta .field { margin: 8px 0 0; }
+.book-bar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--line); flex: none; }
+.book-info { margin: 6px 0 2px; }
+.chapter-list { flex: 1 0 auto; }
+.ch-row { display: grid; grid-template-columns: 20px 1fr auto; grid-template-areas: "chk title state" ". pages pages"; gap: 2px 6px; align-items: center; padding: 6px 10px 6px 8px; border-bottom: 1px solid var(--line); border-left: 3px solid transparent; cursor: pointer; }
+.ch-row:hover { background: var(--hover); }
+.ch-row.active { background: var(--accent-weak); border-left-color: var(--accent); }
+.ch-row [data-chk] { grid-area: chk; }
+.ch-row input[data-f=title] { grid-area: title; padding: 2px 4px; font-size: 13px; min-width: 0; border-color: transparent; background: transparent; cursor: pointer; }
+.ch-row input[data-f=title]:hover, .ch-row input[data-f=title]:focus { border-color: var(--line); background: var(--panel2); cursor: text; }
+.ch-row .ch-state { grid-area: state; font-size: 12px; white-space: nowrap; color: var(--muted); }
 .ch-row .ch-state.ok { color: var(--ok); }
+.ch-row .ch-pages { grid-area: pages; display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); padding-left: 4px; }
+.ch-row .ch-pages input { width: 52px; padding: 1px 4px; font-size: 12px; height: 22px; }
+.ch-row .ch-pages .grow { flex: 1; }
 .ch-row button { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 12px; padding: 0 3px; }
 .ch-row button:hover { color: var(--danger); }
-.ch-row.overview { grid-template-columns: 22px 1fr auto; font-weight: 600; }
-.chapter-view { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-.chapter-head { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--line); }
+.ch-row.overview { grid-template-areas: "chk title state"; font-weight: 600; }
+.ch-part { padding: 9px 10px 5px; font-size: 13px; font-weight: 600; color: var(--accent); border-bottom: 1px solid var(--line); background: var(--panel2); }
+.ch-row.in-part { padding-left: 22px; }
 .chapter-view .ai-scroll { flex: 1; }
+/* 书的 AI 对话：「整理笔记」这一列里和笔记二选一 */
+.bk-chat { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.bk-chat[hidden] { display: none; }
+.bk-chat-bar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--line); flex: none; flex-wrap: wrap; }
+#bookNote.chat-mode #bkTts, #bookNote.chat-mode #bkEdit, #bookNote.chat-mode #bkCopy { display: none; }
+.chapter-head { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--line); flex: none; }
 .pglink { color: var(--accent); cursor: pointer; text-decoration: underline dotted; }
 body.mode-book .video-only { display: none !important; }
 .btn.doubt-btn { color: #e09a2a; border-color: color-mix(in srgb, #f0a030 40%, transparent); }
@@ -554,3 +713,27 @@ a.cite.bad { background: color-mix(in srgb, var(--danger) 14%, transparent); bor
 .tv-words { line-height: 2.1; }
 .tv-word { display: inline-block; padding: 0 8px; margin: 0 6px 4px 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); }
 #tFileActions { margin-top: 6px; gap: 8px; }
+
+/* 图标开关（2026-11-02，打印「带时间」）：亮着 = 打开 */
+.btn.icon-toggle { cursor: pointer; }
+.btn.icon-toggle:has(input:checked) { color: var(--accent); border-color: var(--accent-line); background: var(--accent-weak); }
+
+/* 说明窗口「只看这一块」（字幕区、课程重点区的「?」打开）：不显示左边目录，下面有「查看完整使用说明」 */
+.help-dlg.help-focus #helpNav { display: none; }
+.help-dlg:not(.help-focus) #helpFull { display: none; }
+.help-keys { border: 1px solid var(--accent-line); background: var(--accent-weak); border-radius: 10px; padding: 10px 14px; margin: 6px 0 14px; line-height: 2; }
+.help-keys > b { color: var(--accent); }
+/* 说明里的按钮表：左边画成和界面上一样的按钮，右边是提示 */
+.help-btns table { border-collapse: collapse; margin: 4px 0 12px; }
+.help-btns td { padding: 4px 12px 4px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.help-btns td:first-child { white-space: nowrap; }
+.help-btns .hb-face { pointer-events: none; gap: 4px; }
+.help-btns .hb-switch { border-style: dashed; }
+/* 「快速开始」里的界面分区图：点哪一块跳到哪一节 */
+.help-map { display: grid; grid-template-columns: 1fr 1.7fr 1.3fr; grid-template-rows: auto 64px 64px; grid-template-areas: "top top top" "lib video subs" "lib ai subs"; gap: 6px; max-width: 560px; margin: 6px 0 10px; }
+.help-map button { border: 1px solid var(--accent-line); background: var(--accent-weak); color: var(--text); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 13px; line-height: 1.4; cursor: pointer; }
+.help-map button:hover { border-color: var(--accent); color: var(--accent); }
+.help-map .hm-top { grid-area: top; } .help-map .hm-lib { grid-area: lib; } .help-map .hm-video { grid-area: video; }
+.help-map .hm-ai { grid-area: ai; } .help-map .hm-subs { grid-area: subs; }
+.help-go { color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+kbd { display: inline-block; min-width: 18px; padding: 0 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: var(--panel); font: 12px/1.6 var(--mono); text-align: center; }

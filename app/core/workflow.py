@@ -1,4 +1,4 @@
-"""任务层：Agent（命令行 cli.py，以后 MCP）调用猛人学习的入口。
+"""任务层：Agent（命令行 cli.py，以后 MCP）调用猛人灵修的入口。
 
 做的事和界面上的「一键整理」一样，步骤和顺序是用户定的：
     生成字幕（已有就跳过）→ AI 校对 → 找关键帧（挑插图）→ 用画面复核存疑句 → 翻译（只有英文才翻）
@@ -163,7 +163,7 @@ def resolve(target, check_library=True):
     if os.path.isfile(t):
         path = os.path.abspath(t)
         if check_library and not allowed(path):
-            raise WorkError('not_in_library', f'这个文件不在猛人学习的媒体库里：{path}。请先在软件左边的媒体库添加它所在的文件夹')
+            raise WorkError('not_in_library', f'这个文件不在猛人灵修的媒体库里：{path}。请先在软件左边的媒体库添加它所在的文件夹')
         return path
     hits = [x for x in library_items() if x['video_id'] == t.lower()]
     if hits:
@@ -827,7 +827,9 @@ def st_summary(ctx):
         raise WorkError('bad_output', 'AI 没有写出课程重点', True)
 
     def apply(doc):
-        doc['summary'] = text
+        old, doc['summary'] = doc.get('summary'), text
+        if doc.get('sum_shots'):  # 用户在旧课程重点里手动插的截图放回去
+            doc['summary'], doc['sum_shots'] = docs.keep_sum_shots(old, text, doc['sum_shots'])
         doc['summary_src'] = docs.summary_basis(d['segments'])  # 记下用的是哪一版字幕：之后字幕改多了会提醒重新生成
         _steps(doc).pop('review', None)
         _steps(doc)['summary'] = tasks.now()
@@ -938,24 +940,26 @@ def st_organize(ctx):
         def prog(f, m=None):
             ctx.progress(lo + (hi - lo) * float(f or 0), (m or '') + (f'（第 {k + 1}/{len(todo)} 章）' if len(todo) > 1 else ''))
         md = book.organize_chapter(s, name, ctx.path, info, c, d, teacher, vision, prog, ctx.cancel, d['chapters'])
-        prog(0.92, f'正在查漏「{c["title"]}」…')
-        md, added, missing = book.review_chapter(s, name, info, c, md, d, teacher)
+        # 2026-10-29 停用「查漏」（把没引用到的页补进去）：现在的笔记是提炼（约原文 1/5），按页查漏只会越补越长
+        added = 0
         prog(0.96, f'正在回页面核对「{c["title"]}」里需要确认的地方…')
         md, verified = book.verify_doubts(s, name, ctx.path, info, c, md, d, teacher, vision)
         ctx.check_cancel()
         key = (c.get('title'), c.get('start'), c.get('end'))
+        new = {'md': md, 'updated': time.strftime('%Y/%m/%d %H:%M:%S'),
+               'note': f'提炼：{len(md)} 字' + (f'；回页面核对确认了 {verified} 处' if verified else '')}
 
         def apply(doc):
             cc = (doc.get('chapters') or [])[i] if i < len(doc.get('chapters') or []) else None
             if not cc or (cc.get('title'), cc.get('start'), cc.get('end')) != key:
                 return False  # 这期间分章被改了，这一章不写
-            cc['md'] = md
-            cc['updated'] = time.strftime('%Y/%m/%d %H:%M:%S')
-            cc['note'] = (f'查漏：{missing} 页没被引用，补了 {added} 条' if missing else '每一页都有引用') + (f'；回页面核对确认了 {verified} 处' if verified else '')
+            cc.update(new)
             return True
         if _apply(ctx.path, apply):  # 每章整理完就保存：中途失败，下次从没整理的那章接着做
             done += 1
             adds += added
+            # 界面边整理边显示这一章（2026-10-29 用户：整理了 20 章，界面要等全部做完才看得到）
+            ctx.emit([dict(new, kind='chapter', i=i, title=key[0], start=key[1], end=key[2])])
     return {'chapters': done, 'added': adds}
 
 
@@ -977,7 +981,7 @@ def st_overview(ctx):
     shift = d.get('shift', info.get('shift'))
     for c in chs:
         c['range'] = book.range_ref(c['start'], c['end'], shift)
-    text = book.overview(s, name, d, chs, files)
+    text = book.overview(s, name, d, chs, files, info)
 
     def apply(doc):
         doc['overview'] = text

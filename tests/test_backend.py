@@ -220,6 +220,10 @@ check('抽出 16k 单声道音频', wav.exists() and wav.stat().st_size > 1_000_
 
 # 老师与术语表
 from core import codex_auth, library, llm  # noqa: E402
+_seg = [{'start': 0, 'end': 1, 'text': '一句', 'tr': ''}]
+(TMP / '存疑课.mp4.猛人学习.json').write_text(json.dumps({'segments': _seg, 'doubts': [{'t': 0, 'reason': '听不清', 'text': '一句'}, {'t': 0.5, 'reason': '疑为别字', 'text': '一句'}]}), encoding='utf-8')
+(TMP / '无存疑.mp4.猛人学习.json').write_text(json.dumps({'segments': _seg}), encoding='utf-8')
+check('媒体库数出还没确认的存疑句（好标「存疑 N」）', library._status(str(TMP / '存疑课.mp4'), {}).get('doubts') == 2 and not library._status(str(TMP / '无存疑.mp4'), {}).get('doubts'))
 t = api.call('teacher_save', {'teacher': {'name': '大聪老师', 'terms': '底层逻辑\n峰级, 破级\n风级, 分 => 峰级\n托破旋 =>! 拓扑学',
                                           'about': '期货交易', 'notes': '峰：行情推进的方向', 'lang': 'zh'}})['teacher']
 check('保存老师（含术语说明）', t['id'] and t['notes'] and len(api.call('settings', {})['teachers']) == 1)
@@ -511,6 +515,61 @@ check('剪藏：有重画的放 AI辅助理解图并标注（Mermaid 代码块 /
       placed.count('AI辅助理解图｜根据老师讲解和画面整理，非原画面') == 2 and '```mermaid\nflowchart LR' in placed
       and '![[image/测试课__00-10__AI辅助理解图.svg]]' in placed and svg_file.read_text(encoding='utf-8').startswith('<svg')
       and '![[image/测试课__00-15.jpg]]' in placed and (note_dir / 'image' / '测试课__00-15.jpg').is_file(), placed)
+# 字幕里手动插的截图（2026-10-30）：挂在哪一句后面按「那一句的开始时间」找，剪藏时插进完整字幕对应的位置
+_ss_segs = [{'start': 0.0, 'end': 4.0, 'text': '第一句', 'tr': ''}, {'start': 4.0, 'end': 8.0, 'text': '第二句', 'tr': ''},
+            {'start': 8.0, 'end': 12.0, 'text': '第三句', 'tr': ''}]
+check('字幕截图：挂在开始时间不晚于它的最后一句后面；-1 是第一句前面；句子删了挂到前一句',
+      docs.sub_shot_index(_ss_segs, 4.0) == 1 and docs.sub_shot_index(_ss_segs, -1) == -1 and docs.sub_shot_index(_ss_segs[:1] + _ss_segs[2:], 4.0) == 0)
+_ss_doc = {'title': '截图课', 'media': str(mp4), 'segments': _ss_segs, 'summary': '要点',
+           'sub_shots': [{'t': 5.0, 'at': 4.0}, {'t': 1.0, 'at': -1}]}
+_ss_dir = TMP / 'subshot-note'
+_ss_imgs = docs.sub_shot_images(_ss_doc, _ss_dir, '截图课', lambda t: frames.grab(mp4, t))
+_ss_md = docs.to_markdown(dict(_ss_doc, _sub_imgs=_ss_imgs))
+_full = _ss_md.split('## 完整字幕')[1]
+check('字幕截图：剪藏时插进「完整字幕」，在挂的那一句下面（第一句前面的也在）',
+      _full.index('![[image/截图课__00-01.jpg]]') < _full.index('第一句') < _full.index('第二句') < _full.index('![[image/截图课__00-05.jpg]]') < _full.index('第三句')
+      and (_ss_dir / 'image' / '截图课__00-05.jpg').is_file(), _full)
+check('字幕截图：截图变了媒体库提示「待更新剪藏」；没有截图的旧字幕文件指纹不变',
+      docs.note_hash(_ss_doc) != docs.note_hash(dict(_ss_doc, sub_shots=[{'t': 5.0, 'at': 8.0}, {'t': 1.0, 'at': -1}]))
+      and docs.note_hash(dict(_ss_doc, sub_shots=[])) == docs.note_hash({k: v for k, v in _ss_doc.items() if k != 'sub_shots'}))
+# 编辑截图：裁剪、调整大小（2026-11-02）
+check('裁剪范围：不合法、太小、整张都当没裁剪；宽度 80～1600 之外当自动', media.norm_crop([0.1, 0.2, 0.6, 0.7]) == [0.1, 0.2, 0.6, 0.7]
+      and media.norm_crop([0, 0, 1, 1]) is None and media.norm_crop([0.5, 0.5, 0.51, 0.9]) is None and media.norm_crop('x') is None
+      and media.norm_width(360) == 360 and media.norm_width(20) is None and media.norm_width(None) is None)
+
+
+def _dims(f):
+    r = media.run([media.tool('ffprobe'), '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', str(f)])
+    return tuple(int(x) for x in r.stdout.strip().split(','))
+
+
+_full_f, _crop_f = frames.grab(mp4, 3.0), frames.grab(mp4, 3.0, crop=[0.25, 0.25, 0.75, 0.75])
+_fw, _fh = _dims(_full_f)
+_cw, _ch = _dims(_crop_f)
+check('界面显示裁剪后的截图：从整张截图裁出框的那一块，另存一张、原图不变', _crop_f != _full_f and abs(_cw - _fw / 2) <= 2 and abs(_ch - _fh / 2) <= 2
+      and _dims(_full_f) == (_fw, _fh) and _crop_f.parent == _full_f.parent, (_fw, _fh, _cw, _ch))
+_ed_dir = TMP / 'shot-edit-note'
+_placed = docs.place_figures('- 甲 [00:03]\n\n![[画面 00:03]]\n\n![[画面 00:06]]', [], _ed_dir, '编辑课', lambda t: frames.grab(mp4, t),
+                             {'3': {'crop': [0.25, 0.25, 0.75, 0.75], 'w': 360}, '6': {'w': 500}})
+check('剪藏：课程重点里裁剪过的图另存「…__裁剪.jpg」，宽度写进 Obsidian 的图片链接', '![[image/编辑课__00-03__裁剪.jpg|360]]' in _placed
+      and '![[image/编辑课__00-06.jpg|500]]' in _placed and abs(_dims(_ed_dir / 'image' / '编辑课__00-03__裁剪.jpg')[0] - _fw / 2) <= 2, _placed)
+_ed_imgs = docs.sub_shot_images({'segments': _ss_segs, 'sub_shots': [{'t': 5.0, 'at': 4.0, 'crop': [0, 0, 0.5, 1], 'w': 300}]}, _ed_dir, '编辑课',
+                                lambda t: frames.grab(mp4, t))
+check('剪藏：字幕里裁剪过的截图另存「…__字幕裁剪.jpg」，带宽度', _ed_imgs == {1: ['![[image/编辑课__00-05__字幕裁剪.jpg|300]]']}
+      and (_ed_dir / 'image' / '编辑课__00-05__字幕裁剪.jpg').is_file(), _ed_imgs)
+check('裁剪、改大小后媒体库提示「待更新剪藏」；没编辑过的指纹不变', docs.note_hash(dict(_ss_doc, fig_edits={'3': {'w': 360}})) != docs.note_hash(_ss_doc)
+      and docs.note_hash(dict(_ss_doc, fig_edits={'3': {}})) == docs.note_hash(_ss_doc)
+      and docs.note_hash(dict(_ss_doc, sub_shots=[{'t': 5.0, 'at': 4.0, 'crop': [0, 0, 0.5, 1]}, {'t': 1.0, 'at': -1}])) != docs.note_hash(_ss_doc))
+# 课程重点里手动插的截图（2026-11-02）：重新生成时放回去
+_new = '一句话。\n\n## 一、甲\n\n- 甲 [00:10]\n  接着说 [00:12]\n- 乙 [01:00]\n\n| 项 | 时间 |\n|---|---|\n| 丙 | 02:00 |\n\n```\n03:00 代码里\n```\n\n## 二、丁\n\n- 丁 [05:00]'
+_old = '旧的\n\n![[画面 00:30]]\n\n![[画面 02:30]]\n\n![[画面 03:30]]\n\n![[画面 00:05]]\n\n![[画面 09:00]]'
+_out, _keep = docs.keep_sum_shots(_old, _new, [30, 150, 210, 5, 540, 600])
+check('课程重点截图放回：跟在出处时间不晚于它的那一条后面（一条重点多行不拆开、表格整张、代码块里的时间不算）',
+      '  接着说 [00:12]\n\n![[画面 00:30]]\n\n- 乙' in _out and '| 丙 | 02:00 |\n\n![[画面 02:30]]\n\n![[画面 03:30]]\n\n```' in _out
+      and '## 一、甲\n\n![[画面 00:05]]\n\n- 甲 [00:10]' in _out and _out.endswith('- 丁 [05:00]\n\n![[画面 09:00]]')
+      and _keep == [30, 150, 210, 5, 540], _out)
+check('课程重点截图放回：新的里面已经有就不重复；没有要放回的原样返回', docs.keep_sum_shots('![[画面 00:30]]', _new + '\n\n![[画面 00:30]]', [30])[0].count('00:30]]') == 1
+      and docs.keep_sum_shots('无图', _new + '\n\n\n', [30]) == (_new + '\n\n\n', []))
 
 # 课程重点：老师自述、口述与课件不一致、未讲明
 T = llm.DEFAULT_TEMPLATE
@@ -676,10 +735,26 @@ jb = run_steps(pdfp, ['organize'], chapters=[0])
 bmd = docs.load(str(pdfp))['chapters'][0]['md']
 check('整理一章（写进书旁边的整理结果）', jb['status'] == 'completed' and bmd.startswith('## 一、本章主题') and not docs.load(str(pdfp))['chapters'][1]['md'], jb)
 check('有图表的页附上页面图、锚点写法正确', '[图]' in calls[0] and '锚点写作（P2）' in calls[0] and '【PDF 第 4 页' in calls[0])
-check('整理要求：固定栏目、疑点三分法、非必要不插图', '## 十三、一句话概括' in book.DEFAULT_RULES and '疑点三分法' in book.DEFAULT_RULES and '每章最多 2 张' in book.DEFAULT_RULES)
+# 2026-10-29 改成提炼（灵修版 2026-11-03：约原文 1/3，原话、比喻和故事照录）：不设固定栏目、篇幅写成具体字数、不逐段标页码、每章最多 1 张图；不再查漏补页
+check('整理要求是提炼：不设固定栏目、要留的四样、每章挑最关键的 1～2 张图', '十三、' not in book.DEFAULT_RULES and '提炼笔记' in book.DEFAULT_RULES
+      and '照着做' in book.DEFAULT_RULES and '原话' in book.DEFAULT_RULES and '最关键的 1～2 张' in book.DEFAULT_RULES)
+check('插原书图示：看不准位置可以不写，软件用整页（不要因此不插图）', '看不准位置就不写' in book.FIGURE_RULE)
+import urllib.parse  # noqa: E402
+import urllib.request  # noqa: E402
+_f1 = api.call('book_fig', {'path': str(pdfp), 'n': 4, 'region': '0.1,0.3,0.9,0.6'})
+_f2 = api.call('book_fig', {'path': str(pdfp), 'n': 4, 'region': ''})
+check('整理笔记里的原书图示在软件里直接显示：按位置裁出来；没写位置就整页', _f1['ok'] and _f2['ok'] and _f1['src'] != _f2['src']
+      and all(Path(urllib.request.url2pathname(urllib.parse.urlparse(x['src']).path)).is_file() for x in (_f1, _f2)), (_f1, _f2))
+check('篇幅写成具体字数：灵修版约原文 1/3，最多 2/5', '篇幅：这一章原文约' in calls[0] and '字左右，最多不超过' in calls[0], calls[0][:400])
+check('不再查漏补页', not any('查漏员' in c for c in calls), len(calls))
+_lr = book.length_rule({'pages': [{'n': 1, 'text': '字' * 10000}]}, {'start': 1, 'end': 1})
+check('篇幅（灵修版）：1 万字的一章写 3350 字左右、最多 4000', '原文约 10000 字' in _lr and '3350 字左右' in _lr and '不超过 4000' in _lr, _lr)
+check('灵修版提炼：原话照录、比喻和故事写完整、练习写清步骤、不用 AI 自己的灵性知识补', all(w in book.DEFAULT_RULES for w in ('照录原文', '比喻和故事', '照着做', '不用你自己的灵性'))
+      and '代表性的原话' in book.OVERVIEW_PROMPT)
 rules = TMP / '规范.md'
 rules.write_text('# 外部书籍与文档整理规范 V9\n只回答原书讲了什么。', encoding='utf-8')
-check('关联知识库里的书籍整理规范', '规范 V9' in book._rules({'book_rules_file': str(rules)}) and '规范 V9' not in book._rules({}))
+_rv = book._rules({'book_rules_file': str(rules)})
+check('关联知识库里的书籍整理规范：只作补充，冲突时以软件的提炼要求为准', '规范 V9' in _rv and _rv.index('提炼笔记') < _rv.index('规范 V9') and '规范 V9' not in book._rules({}))
 llm.complete = orig_complete
 bdoc = ob['doc']
 bdoc['chapters'][0]['md'] = bmd
@@ -740,6 +815,142 @@ check('书籍：确认后先备份再更新，自己的内容照样保留', bc6[
 bdoc['chapters'][0]['md'] = md_orig
 bdoc['clip'] = {'dir': bc6['dir'], 'time': bc6['time'], 'files': bc6['records']}
 check('笔记文件名：前言、目录不编号，正文从 01 开始', book.chapter_files([{'title': '前言与目录'}, {'title': '第一章 甲'}, {'title': '第二章 乙'}]) == ['前言与目录', '01、第一章 甲', '02、第二章 乙'])
+# 每页顶上印着部名（页眉）：不能每页都当成新的一章（2026-10-29《研究是一门艺术》被分成 121 章）；页眉下面一行才是章名的也要认出来
+_hp = lambda n, t: {'n': n, 'label': None, 'text': t + '\n正文内容' * 120, 'images': 0, 'figure': False}
+_hdr = [_hp(1, '前言\n一些说明'), _hp(2, '第一部分\n研究与读者'), _hp(3, '第1章 思想的足迹'), _hp(4, '第一部分 研究与读者'), _hp(5, '第一部分 研究与读者i'),
+        _hp(6, '第一部分 研究与读者\n第2章 与读者建立联系'), _hp(7, '第一部分 研究与读者'), _hp(8, '第二部分\n提问题'), _hp(9, '第二部分提问题'), _hp(10, '第二部分 提问题')]
+check('页眉不算新的一章，页眉下面的章名照样认出', [(c['title'], c['start'], c['end']) for c in book.detect_chapters({'pages': _hdr, 'toc': []})]
+      == [('前言与目录', 1, 1), ('第一部分 研究与读者', 2, 2), ('第1章 思想的足迹', 3, 5), ('第2章 与读者建立联系', 6, 7), ('第二部分 提问题', 8, 10)],
+      book.detect_chapters({'pages': _hdr, 'toc': []}))
+# AI 读目录分章要和原书目录一致（2026-10-29）：开篇、结语这些单独成篇，部分的标题页并进它的第一篇，每篇记下属于哪个部分
+_toc_reply = {'部分': [{'标题': '第一部分 甲', '书上页码': 2}, {'标题': '第二部分  乙', '书上页码': 10}],
+              '篇': [{'标题': '前言', '书上页码': 2, 'PDF': True, '部分': ''}, {'标题': '开篇 丙', '书上页码': 3, '部分': '第一部分 甲'},
+                     {'标题': '第1章 丁', '书上页码': 6, '部分': '第一部分 甲'}, {'标题': '第2章 戊', '书上页码': 12, '部分': '第二部分 乙'},
+                     {'标题': '第3章 己', '书上页码': 14}, {'标题': '结语', '书上页码': 16, '部分': ''}]}
+_oc = llm.complete
+llm.complete = lambda *a, **k: json.dumps(_toc_reply, ensure_ascii=False)
+_tinfo = {'pages': [{'n': k, 'text': '正文' * 100} for k in range(1, 21)], 'shift': 2}
+_tch = book.ai_chapters({}, 'x', _tinfo)
+llm.complete = _oc
+check('AI 读目录：和原书目录一致，开篇单独一篇、部分的标题页并进开篇、没写部分的按页码归、结语不属于部分、前言前面的封面并进前言',
+      [(c['title'], c['start'], c['end'], c.get('part', '')) for c in _tch] == [
+          ('前言', 1, 3, ''), ('开篇 丙', 4, 7, '第一部分 甲'), ('第1章 丁', 8, 11, '第一部分 甲'),
+          ('第2章 戊', 12, 15, '第二部分 乙'), ('第3章 己', 16, 17, '第二部分 乙'), ('结语', 18, 20, '')], _tch)
+check('全书总览拿到的全书结构按部分分组', book.structure(_tch) == '前言；第一部分 甲：开篇 丙、第1章 丁；第二部分 乙：第2章 戊、第3章 己；结语', book.structure(_tch))
+# 书自带的目录（书签、EPUB 目录）按完整层次分章：最上一层是部分时按部分分组、下一层每项单独成篇；最上一层是章时节不拆开
+_bm = [{'level': 1, 'title': '前言', 'n': 2}, {'level': 1, 'title': '第一部分 甲', 'n': 4}, {'level': 2, 'title': '开篇 丙', 'n': 5},
+       {'level': 2, 'title': '第1章 丁', 'n': 8}, {'level': 3, 'title': '1.1 一节', 'n': 9}, {'level': 1, 'title': '第二部分 乙', 'n': 12},
+       {'level': 2, 'title': '第2章 戊', 'n': 14}, {'level': 1, 'title': '附录', 'n': 18}]
+check('书签是「部分 → 章 → 节」：按部分分组，开篇单独一篇，节不拆开', [(c['title'], c['start'], c['end'], c.get('part', '')) for c in book.detect_chapters(dict(_tinfo, toc=_bm))] == [
+    ('前言', 1, 3, ''), ('开篇 丙', 4, 7, '第一部分 甲'), ('第1章 丁', 8, 11, '第一部分 甲'), ('第2章 戊', 12, 17, '第二部分 乙'), ('附录', 18, 20, '')],
+    book.detect_chapters(dict(_tinfo, toc=_bm)))
+_bm2 = [{'level': 1, 'title': '第一章 甲', 'n': 1}, {'level': 2, 'title': '第一节', 'n': 2}, {'level': 1, 'title': '第二章 乙', 'n': 10}, {'level': 2, 'title': '第一节', 'n': 11}]
+check('书签是「章 → 节」：一章一篇，节不拆开、不分组', [(c['title'], c['start'], c['end'], c.get('part', '')) for c in book.detect_chapters(dict(_tinfo, toc=_bm2))] == [
+    ('第一章 甲', 1, 9, ''), ('第二章 乙', 10, 20, '')], book.detect_chapters(dict(_tinfo, toc=_bm2)))
+# 目录页自动找：目录排在第 30 页以后、而且很长，整份目录都要交给 AI（以前只看前 25 页、每页前 1500 字）
+_lp = [{'n': k, 'text': '序言正文' * 60} for k in range(1, 61)]
+_lp[31] = {'n': 32, 'text': '目 录\n' + '\n'.join(f'第{k}章 ' + '很长的章名' * 6 + f'……{k * 10}' for k in range(1, 60))}
+_lp[32] = {'n': 33, 'text': '\n'.join(f'第{k}章 后面一页的章名……{k * 10}' for k in range(60, 80)) + '\n附录 最后一项……900'}
+check('自动找到目录页：从带「目录」的那页起，连着的目录页都算', [p['n'] for p in book.toc_pages(_lp)] == [32, 33], [p['n'] for p in book.toc_pages(_lp)])
+# 两栏排的目录 OCR 后：「第一节」一栏、节名一栏、页码单独一行，「目」「录」两个字分在后面（2026-10-29《K线动能理论》）
+_tc = [{'n': k, 'text': '正文' * 100} for k in range(1, 21)]
+_tc[8] = {'n': 9, 'text': '\n'.join(['第一章', '第一节', '第二节', '第二章', '第一节', '目', '录', '基本概念', '客观规律', '3', '产生背景', '6',
+                                     '特性和应用', '作用', '19', '1'])}
+_tc[9] = {'n': 10, 'text': '\n'.join(['第三章', '第一节', '第二节', '形态概念', '分界线', '51', '引力效应', '60', '2'])}
+check('两栏排的目录（节名和页码分在不同行）也认得出是目录页', [p['n'] for p in book.toc_pages(_tc)] == [9, 10], [p['n'] for p in book.toc_pages(_tc)])
+check('AI 读目录：章没写页码时用下面第一节的页码', '用它下面第一节的页码' in book.TOC_PROMPT and '两栏' in book.TOC_PROMPT)
+_seen = {}
+llm.complete = lambda s_, n_, msgs, **k: _seen.setdefault('u', msgs[-1]['content']) and json.dumps({'部分': [], '篇': []})
+book.ai_chapters({}, 'x', {'pages': _lp, 'shift': None})
+llm.complete = _oc
+check('AI 读目录：整份目录都交给 AI（目录很长、排在第 30 页以后也不漏）', '第59章 很长的章名' in _seen['u'] and '附录 最后一项' in _seen['u'] and '目录页' in _seen['u'], len(_seen.get('u', '')))
+# 外文书：整理稿统一用中文写、术语附原文（2026-10-29）；中文书不加这条
+_en = {'pages': [{'n': k, 'text': 'Research is a craft that anyone can learn. ' * 8} for k in range(1, 6)], 'kind': 'pdf', 'shift': None}
+_ch = {'title': 'Chapter 1', 'start': 1, 'end': 2}
+check('外文书：整理要求里写明用中文写、术语附原文；中文书没有这条', not book.is_chinese(_en) and book.is_chinese(_tinfo)
+      and book.LANG_RULE in book._book_head({}, _ch, _en, None) and book.LANG_RULE not in book._book_head({}, _ch, dict(_tinfo, kind='pdf'), None))
+_seen.clear()
+llm.complete = lambda s_, n_, msgs, **k: _seen.setdefault('u', msgs[-1]['content']) and '## 一、书籍基本信息'
+book.overview({}, 'x', {'title': 'The Craft of Research'}, [dict(_ch, md='整理稿', range='P1-P2')], ['01、Chapter 1'], _en)
+llm.complete = _oc
+check('外文书：全书总览也要求用中文写', book.LANG_RULE in _seen.get('u', ''))
+# 书的 AI 对话（2026-10-29）：问这一章读这一章原文全文 + 笔记；问整本书读全部笔记 + 本机挑的相关原文页；问答由后台存
+_cinfo = {'pages': [{'n': 1, 'text': '第一章 趋势\n趋势从三段开始，第一段是试探。' * 6}, {'n': 2, 'text': '第二段是确认。' * 15},
+                    {'n': 3, 'text': '仓位要按风险来分配，每次不超过百分之二。' * 6}], 'shift': None}
+_cdoc = {'title': '测试书', 'chapters': [{'title': '第一章 趋势', 'start': 1, 'end': 2, 'md': '> 一句话：趋势分三段。'},
+                                       {'title': '第二章 仓位', 'start': 3, 'end': 3, 'md': '> 一句话：按风险分仓。'}]}
+_m = book.chat_messages(_cinfo, _cdoc, 'chapter', 0, [{'role': 'user', 'content': '第一段是什么？'}])
+check('书的 AI 对话·问这一章：给这一章的原文全文和笔记，不给别的章', '第二段是确认' in _m[0]['content'] and '趋势分三段' in _m[0]['content']
+      and '仓位要按风险' not in _m[0]['content'] and _m[-1]['content'] == '第一段是什么？')
+_m = book.chat_messages(_cinfo, _cdoc, 'book', -1, [{'role': 'user', 'content': '仓位怎么按风险分配？'}])
+check('书的 AI 对话·问整本书：给全部笔记，再挑和问题相关的原文页', '趋势分三段' in _m[0]['content'] and '按风险分仓' in _m[0]['content']
+      and '每次不超过百分之二' in _m[0]['content'], _m[0]['content'][-300:])
+_os = llm.stream
+llm.stream = lambda s_, n_, msgs, cancel=None, json_mode=False: iter(['趋势', '分三段（P1）。'])
+_j = wait(api.call('book_chat', {'path': str(pdfp), 'scope': 'chapter', 'i': 0, 'key': 'ch:3-5', 'messages': [{'role': 'user', 'content': '讲了什么？'}]})['job'])
+llm.stream = _os
+_bc = (docs.load(str(pdfp)).get('book_chat') or {}).get('ch:3-5')
+check('书的 AI 对话：问答由后台存进书的整理结果', _j['status'] == 'done'
+      and _bc == [{'role': 'user', 'content': '讲了什么？'}, {'role': 'assistant', 'content': '趋势分三段（P1）。'}], (_j, _bc))
+api.call('book_chat_clear', {'path': str(pdfp), 'key': 'ch:3-5'})
+check('书的 AI 对话：可以清空', 'ch:3-5' not in (docs.load(str(pdfp)).get('book_chat') or {}))
+# 扫描书识别文字（2026-10-29，core/ocr.py）：只有图片的 PDF → 可搜索 PDF（页面不变，下面一层看不见的文字），原文件挪进「_OCR前的原件」
+from core import ocr  # noqa: E402
+import pypdfium2 as _pdfium  # noqa: E402
+_scan = BOOKS / '扫描书' / '《扫描测试》.pdf'
+_scan.parent.mkdir(exist_ok=True)
+_srcpdf, _new = _pdfium.PdfDocument(str(pdfp)), _pdfium.PdfDocument.new()
+for _i in range(len(_srcpdf)):  # 每页渲染成图片，做成一本只有图片的「扫描书」
+    import io as _io
+    _pg = _srcpdf[_i]; _w, _h = _pg.get_size()
+    _b = _io.BytesIO(); _pg.render(scale=1).to_pil().convert('RGB').save(_b, 'JPEG'); _b.seek(0); _pg.close()
+    _np = _new.new_page(_w, _h); _im = _pdfium.PdfImage.new(_new); _im.load_jpeg(_b, inline=False, autoclose=False)
+    _im.set_matrix(_pdfium.PdfMatrix().scale(_w, _h)); _np.insert_obj(_im); _np.gen_content(); _np.close()
+_new.save(str(_scan)); _new.close(); _srcpdf.close()
+check('扫描书：认得出是扫描版、没有文字', book.read(str(_scan))['scan'] and book.read(str(_scan))['chars'] == 0)
+r = api.call('book_ocr', {'path': str(pdfp)})
+check('普通 PDF（有文字的电子版）不让识别', not r['ok'] and '扫描版' in r['error'], r)
+_oa, _orc = ocr.available, ocr.recognize
+ocr.available = lambda: (True, '')
+
+
+def _fake_recognize(images, work):  # 每页两行：标题行和正文行（y 从上往下），像 Windows 识别返回的那样带每个字的位置
+    out = {}
+    for f in sorted(images.glob('p*.png')):
+        n = int(f.stem[1:])
+        out[n] = {'w': 1000, 'h': 1400, 'lines': [
+            {'text': {3: '第 一 章 趋 势 的 起 点', 6: '第 二 章 仓 位 的 分 配'}.get(n, f'第 {n} 页 的 标 题'), 'words': [{'x': 100, 'y': 100, 'w': 500, 'h': 40}]},
+            {'text': f'这 是 第 {n} 页 识 别 出 来 的 正 文 。', 'words': [{'x': 100, 'y': 300, 'w': 700, 'h': 30}]}]}
+    return out
+
+
+ocr.recognize = _fake_recognize
+_j = wait(api.call('book_ocr', {'path': str(_scan)})['job'])
+ocr.available, ocr.recognize = _oa, _orc
+_ri = book.read(str(_scan))
+_t3 = next(p['text'] for p in _ri['pages'] if p['n'] == 3)
+check('识别文字：生成可搜索 PDF，软件读得出每页的文字，行序对（标题在正文前）', _j['status'] == 'done' and _ri['chars'] > 0
+      and _t3.index('第一章趋势的起点') < _t3.index('这是第3页识别出来的正文'), (_j, _t3))
+_orig = _scan.parent / '_OCR前的原件（确认没问题可以删）' / _scan.name
+check('识别文字：原文件挪进同一文件夹的「_OCR前的原件」，新文件用原来的名字', _orig.exists() and _scan.exists() and book.read(str(_orig))['chars'] == 0, _j)
+check('识别文字：还没整理过的书按新文字重新分章', any(c['title'].startswith('第一章') for c in docs.load(str(_scan))['chapters']), docs.load(str(_scan))['chapters'])
+check('识别文字：临时文件做完就删了', not [x for x in ocr.OCR_DIR.glob('*') if x.name != 'winocr.ps1'], list(ocr.OCR_DIR.glob('*')))
+shutil.rmtree(_scan.parent, ignore_errors=True)
+# 几页的图同时生成（朗读原文时一屏有好几页带图）：pdfium 不能同时用，要排队，不然全都「Failed to load page」
+import concurrent.futures as _cf
+shutil.rmtree(book.pages_dir(pdfp), ignore_errors=True)
+with _cf.ThreadPoolExecutor(4) as _ex:
+    _outs = list(_ex.map(lambda n: book.render_page(pdfp, n, 333), [1, 2, 3, 1, 2, 3]))
+check('几页的图同时生成也不出错', all(Path(o).is_file() and Path(o).stat().st_size > 0 for o in _outs), _outs)
+# 朗读原文的文字：去掉每页都有的页眉、页码，排版折断的行接成段落，有图表的页标出来
+_rp = [{'n': k, 'text': f'研究是一门艺术 页眉{"i" if k % 2 else ""}\n这是第{k}页第一段的第一行，排得满满的一整行\n第一段接着写完。\n第二段只有短短一行。\n• 第{k}个要点\n'
+        + ('a\n4,000,000 3,500,000 •\n如图 3 所示的流程\n' if k == 3 else '') + f'{k + 10}', 'images': []} for k in range(1, 6)]
+_rd = book.reading_pages({'pages': _rp}, 2, 3)
+check('朗读原文：只取这几页，去掉页眉和页码', [p['n'] for p in _rd] == [2, 3] and not any('页眉' in x or x.strip() in ('12', '13') for p in _rd for x in p['paras']), _rd)
+check('朗读原文：折断的行接成段落，「•」开头另起一段', _rd[0]['paras'][:3] == ['这是第2页第一段的第一行，排得满满的一整行第一段接着写完。', '第二段只有短短一行。', '• 第2个要点'], _rd[0]['paras'])
+check('朗读原文：有图表的页标出来（界面附上这一页的图，朗读跳过）', not _rd[0]['figure'] and _rd[1]['figure'], _rd)
+check('朗读原文：中文书有图表的页，图里识别出的零碎字母和数字不读', not any(x in ('a', '4,000,000 3,500,000 •') for x in _rd[1]['paras'])
+      and any('如图 3' in x for x in _rd[1]['paras']), _rd[1]['paras'])
 check('只认出一章时按页数分段', [c['title'] for c in book.detect_chapters(dict(info, toc=[], pages=[dict(p, text=p['text'].replace('第二章', '仓位一节')) for p in info['pages']]))] == ['全文'])
 # 同名 Word（WPS 做 OCR 后导出的）当正文参考
 shutil.copy(docx, BOOKS / '《测试书籍》测试作者.docx')
@@ -1478,6 +1689,16 @@ tts.HEDGE_AFTER = _old_hedge
 check('朗读：一句迟迟不回来就再要一次，用先回来的（不干等）', got == b'ok2' and len(_calls) == 2 and time.time() - t0 < 1.5, (got, time.time() - t0))
 r = api.call('tts_voices', {})
 check('朗读：Edge 在线声音列表（晓晓在第一个）', r['ok'] and r['edge'][0]['id'] == 'zh-CN-XiaoxiaoNeural' and len(r['edge']) == 5)
+# 英文句子自动换英文声音（2026-10-29，外文书朗读原文）；中文句子夹几个英文词还是中文声音
+check('朗读：英文句子算英文，中文句子夹英文词不算', tts.is_english('Research is a craft.') and not tts.is_english('研究是一门 craft。') and not tts.is_english('P42'))
+_old_edge = tts._edge
+tts._edge = lambda text, voice, proxy: voice.encode()
+check('朗读：Edge 读英文句子用英文声音（没选就用 Aria），中文句子用选的中文声音',
+      tts.speak('edge', 'Research is a craft.', 'zh-CN-YunxiNeural') == b'en-US-AriaNeural'
+      and tts.speak('edge', 'Research is a craft.', 'zh-CN-YunxiNeural', None, 'en-GB-SoniaNeural') == b'en-GB-SoniaNeural'
+      and tts.speak('edge', '研究是一门艺术。', 'zh-CN-YunxiNeural', None, 'en-GB-SoniaNeural') == b'zh-CN-YunxiNeural')
+tts._edge = _old_edge
+check('朗读：声音列表里有英文声音', r['edge_en'][0]['id'] == 'en-US-AriaNeural' and len(r['edge_en']) == 5)
 
 # 从资源管理器拖文件进来：浏览器内核记下完整路径（FilesDropped），界面按文件名取（2026-10-19 起不再用 pywebview 的 DOM 拖放事件）
 from webview.dom import _dnd_state  # noqa: E402
@@ -1487,6 +1708,45 @@ check('拖进来的文件：按文件名取到完整路径，用过就清掉', r
 t0 = time.time()
 r = api.call('dropped', {'names': ['乙.mp4']})
 check('没找到时等一会儿就返回空的，不会一直等', r['ok'] and r['path'] == '' and time.time() - t0 < 3)
+
+# 检查更新（2026-11-02）：问 GitHub 最新版本；直接连不上、填了代理时再走代理；版本号按数字比（1.10.0 比 1.9.2 新）
+import requests as _rq  # noqa: E402
+
+
+class _Resp:
+    status_code = 200
+
+    def json(self):
+        return {'tag_name': 'v1.10.0', 'html_url': 'https://github.com/longpeng1413/mengren-learning/releases/tag/v1.10.0',
+                'body': '## 1.10.0\n\n- 新功能', 'published_at': '2026-11-03T08:00:00Z'}
+
+
+_seen, _keep_get, _keep_ver = [], _rq.get, api._version
+
+
+def _fake_get(url, **kw):
+    _seen.append(kw.get('proxies'))
+    if not kw.get('proxies'):
+        raise _rq.ConnectionError('直接连不上')
+    return _Resp()
+
+
+_rq.get = _fake_get
+try:
+    api._version = '1.9.2'
+    config.update({'proxy': 'http://127.0.0.1:7890'})
+    r = api.call('check_update', {'auto': True})
+    check('检查更新：直接连不上时走代理再试；1.10.0 比 1.9.2 新；自动检查记下日期', r['ok'] and r['newer'] and r['latest'] == '1.10.0'
+          and r['date'] == '2026-11-03' and _seen == [None, {'http': 'http://127.0.0.1:7890', 'https': 'http://127.0.0.1:7890'}]
+          and config.load()['update_checked'] == time.strftime('%Y-%m-%d'), (r, _seen))
+    api._version = '1.10.0'
+    check('检查更新：已经是最新版本', not api.call('check_update', {})['newer'])
+    config.update({'proxy': ''})
+    r = api.call('check_update', {})
+    check('检查更新：连不上 GitHub 时说清楚原因和办法', not r['ok'] and '连不上 GitHub' in r['error'] and '网络代理' in r['error'], r)
+finally:
+    _rq.get, api._version = _keep_get, _keep_ver
+    config.update({'proxy': ''})
 
 # 代码里没有写错的变量名（pyflakes）
 import importlib.util  # noqa: E402

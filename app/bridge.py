@@ -1,13 +1,17 @@
 """界面与后台之间的桥：界面通过 window.pywebview.api.call(名称, 参数) 调用这里的函数。
 不开本地网络端口（有的电脑上安全软件或代理会干扰 127.0.0.1 连接），视频直接用 file:// 播放。"""
+import hashlib
 import os
+import re
+import shutil
 import subprocess
+import sys
 import threading
 import time
 import uuid
 from pathlib import Path
 
-from core import asr, bgqueue, book, cache, codex_auth, config, distill, doc as docs, frames, glossary, jobs, library, llm, media, mentor, roundtable, tasks, tts, workflow
+from core import asr, bgqueue, book, cache, codex_auth, config, distill, doc as docs, frames, glossary, jobs, library, llm, media, mentor, ocr, roundtable, tasks, tts, workflow
 from core.log import LOG_DIR, log
 
 MEDIA_FILTER = ('音视频和文档 (*.mp4;*.m4v;*.mov;*.mkv;*.webm;*.avi;*.flv;*.ts;*.wmv;*.3gp;*.mpg;*.mpeg;'
@@ -23,6 +27,7 @@ class Api:
     def __init__(self):
         self._window = None
         self._quit = threading.Event()
+        self._printing = False  # 打印预览开着（2026-11-02）：这时点右上角 × 只关掉打印预览（main.on_closing）
         self._version = ''
         self._bundled = None
         self._sibling = []  # 第一次打开时从猛人学习带过来的设置项
@@ -89,8 +94,8 @@ class Api:
 
     def do_save_dialog(self, b):
         import webview
-        ext = 'srt' if b.get('ext') == 'srt' else 'txt'
-        types = ('文本文件 (*.txt)',) if ext == 'txt' else ('字幕文件 (*.srt)',)
+        ext = b.get('ext') if b.get('ext') in ('srt', 'pdf') else 'txt'
+        types = {'txt': ('文本文件 (*.txt)',), 'srt': ('字幕文件 (*.srt)',), 'pdf': ('PDF 文件 (*.pdf)',)}[ext]
         r = self._window.create_file_dialog(webview.FileDialog.SAVE, save_filename=b.get('name') or '', file_types=types)
         if not r:
             return {'path': None}
@@ -470,11 +475,11 @@ class Api:
     def do_tts(self, b):
         """朗读一句话（Edge 在线 / 百度）：返回 mp3 的 base64，只在内存里，界面播完就丢。"""
         import base64
-        data = tts.speak(b.get('engine') or 'edge', b.get('text') or '', b.get('voice') or '', config.load())
+        data = tts.speak(b.get('engine') or 'edge', b.get('text') or '', b.get('voice') or '', config.load(), b.get('voice_en') or '')
         return {'audio': base64.b64encode(data).decode('ascii'), 'mime': 'audio/mpeg'}
 
     def do_tts_voices(self, b):
-        return {'edge': [{'id': v, 'name': n} for v, n in tts.EDGE_VOICES]}
+        return {'edge': [{'id': v, 'name': n} for v, n in tts.EDGE_VOICES], 'edge_en': [{'id': v, 'name': n} for v, n in tts.EDGE_EN_VOICES]}
 
     def do_dropped(self, b):
         """从资源管理器拖进来的文件：界面先把文件交给浏览器内核（FilesDropped，pywebview 记下完整路径），再按文件名来取。"""
@@ -644,6 +649,105 @@ class Api:
         return {'pages': [{'n': p['n'], 'ref': book.page_ref(p['n'], shift), 'text': p['text'],
                            'images': [file_url(x) for x in p.get('images') or []]} for p in info['pages']]}
 
+    def do_book_read(self, b):
+        """朗读原文：这几页去掉页眉页码、接成段落的文字；有图表的页标出来（PDF 的图由 book_page_img 按需渲染）。"""
+        info = book.read(b.get('path'))
+        shift = b.get('shift') if 'shift' in b else info.get('shift')
+        pages = book.reading_pages(info, int(b.get('start') or 1), int(b.get('end') or 0) or None)
+        return {'pdf': info['kind'] == 'pdf', 'pages': [dict(p, ref=book.page_ref(p['n'], shift), images=[file_url(x) for x in p['images']]) for p in pages]}
+
+    def do_book_ocr(self, b):
+        """扫描书识别文字（core/ocr.py，Windows 自带识别）：生成可搜索 PDF，用原来的文件名换上（整理结果接得上），
+        原文件挪进同一文件夹的「_OCR前的原件…」（「_」开头的文件夹媒体库不列）；还没整理过的书按新文字重新分章。"""
+        path = os.path.abspath(str(b.get('path') or ''))
+        info = book.read(path)
+        if info['kind'] != 'pdf' or not info.get('scan'):
+            raise ValueError('只有扫描版的 PDF（每页是整张图片）需要识别文字')
+        if tasks.busy(docs.media_key(path)):
+            raise ValueError('这本书正在被别的任务整理，整理完再识别文字')
+        ok, why = ocr.available()
+        if not ok:
+            raise ValueError(why)
+
+        def run(job):
+            p = Path(path)
+            tmp = ocr.OCR_DIR / f'{uuid.uuid4().hex[:12]}.pdf'
+            try:
+                r = ocr.make_searchable(path, tmp, job.report, job.cancel)
+                keep = p.parent / '_OCR前的原件（确认没问题可以删）'
+                keep.mkdir(exist_ok=True)
+                dest = keep / p.name
+                if dest.exists():
+                    dest = keep / f'{p.stem}-{time.strftime("%Y%m%d-%H%M%S")}{p.suffix}'
+                try:
+                    os.replace(p, dest)
+                except OSError as e:
+                    raise ValueError(f'原文件挪不动（可能被别的程序打开着，比如 WPS、PDF 阅读器）：{e}')
+                shutil.move(str(tmp), str(p))
+            finally:
+                tmp.unlink(missing_ok=True)
+            info2 = book.read(path)
+
+            def change(d):
+                if d.get('shift') is None and info2.get('shift') is not None:
+                    d['shift'] = info2['shift']
+                if not any((c.get('md') or '').strip() for c in d.get('chapters') or []):
+                    d['chapters'] = [dict(c, md='') for c in book.detect_chapters(info2)]
+                return len(d.get('chapters') or [])
+            n = workflow._apply(path, change)
+            log.info('识别文字：%s，%s 页、%s 字，原文件挪到 %s', path, r['pages'], r['chars'], dest)
+            return dict(r, chapters=n, original=str(dest))
+        return {'job': jobs.start('book_ocr', run).id}
+
+    def do_book_fig(self, b):
+        """整理笔记里的「原书图示」在软件里直接显示（以前要剪藏到 Obsidian 才看得到图）：
+        和剪藏时同一个裁法（book.crop_figure，没写位置就整页），放进缓存的页面图文件夹（30 天没用自动删）。"""
+        path = str(b.get('path') or '')
+        n = int(b.get('n') or 1)
+        region = [x for x in re.split(r'[,，\s]+', str(b.get('region') or '').strip()) if x]
+        region = region if len(region) == 4 else None
+        dest = book.pages_dir(path) / f'fig_{n:04d}_{hashlib.sha1(",".join(region or []).encode()).hexdigest()[:8]}.jpg'
+        if not (dest.is_file() and dest.stat().st_size > 0):
+            book.crop_figure(path, book.read(path), n, region, dest)
+        return {'src': file_url(dest)}
+
+    def do_book_page_img(self, b):
+        """PDF 某一页的图（朗读原文时附在这一页文字后面看图表用；缓存 30 天没用自动删）。"""
+        return {'src': file_url(book.render_page(b.get('path'), int(b.get('n')), 900))}
+
+    def do_book_chat(self, b):
+        """书的 AI 对话（边写边显示）：scope=chapter 读第 i 篇的原文全文 + 笔记，scope=book 读全部笔记 + 本机挑的相关原文页。
+        问答写进书的整理结果 book_chat[key]（由后台写，不走界面保存：后台可能正在整理这本书，界面整份保存会撞）。"""
+        s = config.load()
+        name = s['chat']
+        llm.check(s, name)
+        path = str(b.get('path') or '')
+        info = book.read(path)
+        d = workflow.load_doc(path)
+        scope = 'chapter' if b.get('scope') == 'chapter' else 'book'
+        key = str(b.get('key') or 'book')
+        history = [m for m in (b.get('messages') or []) if m.get('role') in ('user', 'assistant') and m.get('content')]
+        messages = book.chat_messages(info, d, scope, int(b.get('i') if b.get('i') is not None else -1), history)
+        question = next((m['content'] for m in reversed(history) if m['role'] == 'user'), '')
+
+        def run(job):
+            text = ''
+            for piece in llm.stream(s, name, messages, job.cancel):
+                text += piece
+                job.push([piece])
+            if text.strip():
+                answer = text.strip() + ('（已停止）' if job.cancel.is_set() else '')
+                workflow._apply(path, lambda doc: doc.setdefault('book_chat', {}).setdefault(key, []).extend(
+                    [{'role': 'user', 'content': question}, {'role': 'assistant', 'content': answer}]))
+            return {'saved': bool(text.strip())}
+        return {'job': jobs.start('book_chat', run).id}
+
+    def do_book_chat_clear(self, b):
+        """清空书的某一段 AI 对话（这一章的或整本书的）。"""
+        key = str(b.get('key') or '')
+        workflow._apply(str(b.get('path') or ''), lambda doc: (doc.get('book_chat') or {}).pop(key, None))
+        return {}
+
     def do_book_chapters(self, b):
         """重新识别章节。ai=True 时让 AI 读目录页（后台任务）。"""
         path = b.get('path')
@@ -715,7 +819,7 @@ class Api:
         path = b.get('path')
         if not path or not os.path.isfile(path):
             raise ValueError('视频文件不见了')
-        return {'url': file_url(frames.grab(path, float(b.get('t') or 0), small=bool(b.get('small'))))}
+        return {'url': file_url(frames.grab(path, float(b.get('t') or 0), small=bool(b.get('small')), crop=b.get('crop')))}
 
     def do_models(self, b):
         name = b.get('provider')
@@ -803,6 +907,41 @@ class Api:
         return {'version': self._version, 'bundled': bool(bundled), 'sibling': sibling, 'log_dir': str(LOG_DIR), 'data_dir': str(config.DATA_DIR),
                 'cache_dir': str(config.CACHE_DIR), 'storage_root': str(config.STORAGE_ROOT),
                 'storage_custom': s.get('storage_dir') or '', 'storage_default': str(config.default_storage_root()), **cache.info()}
+
+    RELEASES = 'https://github.com/longpeng1413/mengren-lingxiu/releases'
+
+    def do_check_update(self, b):
+        """检查更新（2026-11-02 用户：完整的自动升级先不做，有新版本就让用户自己去 GitHub 下载页下载）。
+        问 GitHub 接口最新发布的版本；直接连不上、又在「网络代理」里填了代理时，再走代理试一次。
+        auto：打开软件时的自动检查，记下日期，一天只查一次。界面自测（--fake-ai）不联网，返回假的新版本。"""
+        import requests
+        if '--fake-ai' in sys.argv:
+            return {'current': self._version, 'latest': '99.0.0', 'newer': True, 'url': self.RELEASES + '/latest',
+                    'notes': '## 99.0.0\n\n- 测试用的更新说明', 'date': '2099-01-01'}
+        s = config.load()
+        data, err = None, None
+        for px in [None] + ([{'http': s['proxy'], 'https': s['proxy']}] if s.get('proxy') else []):
+            try:
+                r = requests.get('https://api.github.com/repos/longpeng1413/mengren-lingxiu/releases/latest', timeout=(8, 20), proxies=px,
+                                 headers={'Accept': 'application/vnd.github+json', 'User-Agent': 'mengren-lingxiu/' + (self._version or 'dev')})
+                if r.status_code == 200:
+                    data = r.json()
+                    break
+                err = f'GitHub 返回 HTTP {r.status_code}'
+            except requests.RequestException as e:
+                err = e
+        if b.get('auto'):
+            config.update({'update_checked': time.strftime('%Y-%m-%d')})
+        if data is None:
+            log.info('检查更新失败：%s', err)
+            raise ConnectionError('连不上 GitHub，检查不了更新。可以稍后再试，或者在「设置 → 网络代理」里填上代理地址再试')
+        latest = str(data.get('tag_name') or '').lstrip('vV')
+
+        def ver(v):
+            return tuple(int(x) for x in re.findall(r'\d+', v or '')[:4])
+        return {'current': self._version, 'latest': latest, 'newer': ver(latest) > ver(self._version),
+                'url': data.get('html_url') or self.RELEASES + '/latest', 'notes': str(data.get('body') or '')[:6000],
+                'date': str(data.get('published_at') or '')[:10]}
 
     def do_set_storage(self, b):
         """更改缓存和日志的位置（空 = 软件所在文件夹），重启后生效。"""
@@ -908,6 +1047,64 @@ class Api:
         target = {'log': LOG_DIR, 'data': config.DATA_DIR, 'cache': config.CACHE_DIR}.get(b.get('which'), LOG_DIR)
         target.mkdir(parents=True, exist_ok=True)
         os.startfile(str(target))
+        return {}
+
+    # ------------------------------------------------------------ 打印 ----
+    def _on_ui(self, fn):
+        """在窗口的界面线程上执行（浏览器内核的东西只能在那里碰）。"""
+        from System import Func, Type
+        box = {}
+
+        def run():
+            try:
+                box['r'] = fn()
+            except Exception as e:  # noqa: BLE001
+                box['e'] = e
+        self._window.native.Invoke(Func[Type](run))
+        if 'e' in box:
+            raise box['e']
+        return box.get('r')
+
+    def do_print_pdf(self, b):
+        """「导出 PDF」按钮（2026-11-02 用户：打印窗口里不知道「打印机」那栏能选另存为 PDF，要单独一个按钮）：
+        界面已经把要印的内容放进 #printArea、body 加了 printing，这里用 WebView2 的 PrintToPdfAsync 按打印的样子直接存，不弹打印窗口。"""
+        path = str(b.get('path') or '')
+        if not path.lower().endswith('.pdf'):
+            raise ValueError('PDF 保存位置不对')
+        task = self._on_ui(lambda: self._window.native.browser.webview.CoreWebView2.PrintToPdfAsync(path, None))
+        t0 = time.time()
+        while not task.IsCompleted:
+            if time.time() - t0 > 180:
+                raise TimeoutError('保存 PDF 超过 3 分钟还没完成')
+            time.sleep(0.1)
+        if task.IsFaulted or not task.Result or not os.path.isfile(path):
+            raise OSError('保存 PDF 失败（文件可能正被别的程序打开）')
+        log.info('打印内容存成 PDF：%s（%d KB）', path, os.path.getsize(path) // 1024)
+        return {'path': path, 'size': os.path.getsize(path)}
+
+    def do_print_state(self, b):
+        """界面打开 / 关掉打印预览时告诉后台（2026-11-02），点右上角 × 时好知道该关的是打印预览（main.on_closing）。"""
+        self._printing = bool(b.get('on'))
+        return {}
+
+    def close_print_preview(self):
+        """打印预览开着时点了右上角 ×：给浏览器内核发一个 Esc 关掉打印预览（实测 Esc 能关），软件不退出、不收进托盘。"""
+        def esc():
+            from System.Windows.Forms import SendKeys
+            self._window.native.browser.webview.Focus()
+            SendKeys.SendWait('{ESC}')
+        try:
+            self._on_ui(esc)
+            log.info('打印预览开着时点了 ×：只关掉打印预览')
+        except Exception:
+            log.exception('关打印预览出错')
+        self._printing = False
+
+    def do_open_file(self, b):
+        """用系统默认程序打开刚存的 PDF。"""
+        path = str(b.get('path') or '')
+        if path.lower().endswith('.pdf') and os.path.isfile(path):
+            os.startfile(path)
         return {}
 
     def do_quit(self, b):
