@@ -89,7 +89,7 @@ CHAT_PROVIDERS = ['chatgpt', 'codex', 'claude', 'gemini', 'deepseek', 'ark', 'si
 AI_TASKS = [
     ('correct', 'AI 校对', 'correct'),
     ('translate', '翻译（英文课）', 'translate'),
-    ('vision', '看图（找插图、用画面复核存疑句、重画、写图片说明）', 'vision'),
+    ('vision', '看图（截图写说明、AI 重画）', 'vision'),
     ('summary', '课程重点', 'chat'),
     ('review', '查漏补缺', 'chat'),
     ('terms', '找新术语', 'chat'),
@@ -176,7 +176,6 @@ DEFAULTS = {
                  'book_folder': '书籍剪藏', 'book_dir_pattern': '《{title}》{author}'},
     'book_rules_file': '',
     'auto_review': True,
-    'auto_frames': False,  # 一键整理、后台整理默认找不找关键帧（插图）：灵修课一般不用，默认不找，勾选了照样找
     'close_to_tray': True,  # 点右上角 × 时收到右下角托盘，不退出
     'update_auto': True,  # 打开软件时自动检查更新（每天最多一次，2026-11-02）
     'update_checked': '',  # 上次自动检查更新的日期
