@@ -314,6 +314,16 @@
   <div class="ai-body" data-pane="summary">
     <div class="summary-stale" id="summaryStale" hidden><span id="summaryStaleText"></span><button class="btn primary small" id="btnSummaryStale" title="用改好的字幕重新写课程重点">重新生成</button></div>
     <div class="ai-scroll md" id="summaryBox"></div>
+    <div class="sum-format-bar" id="summaryFormatBar" hidden aria-label="课程重点格式工具">
+      <span class="muted small-text">选中文字可加粗、斜体；标题和列表作用于当前行</span>
+      <button type="button" data-sum-format="bold" title="加粗选中文字（Ctrl+B）"><b>B</b> 加粗</button>
+      <button type="button" data-sum-format="italic" title="斜体选中文字（Ctrl+I）"><i>I</i> 斜体</button>
+      <button type="button" data-sum-format="h2" title="把当前行设为大标题">大标题</button>
+      <button type="button" data-sum-format="h3" title="把当前行设为小标题">小标题</button>
+      <button type="button" data-sum-format="ul" title="切换圆点列表">圆点列表</button>
+      <button type="button" data-sum-format="ol" title="切换编号列表">编号列表</button>
+      <button type="button" data-sum-format="quote" title="切换引用格式">引用</button>
+    </div>
     <textarea class="summary-edit" id="summaryEdit" hidden spellcheck="false"></textarea>
     <div class="ai-foot">
       <button class="btn primary small" id="btnSummary" title="AI 整理这节课的重点，每条标出处时间">生成课程重点</button>
