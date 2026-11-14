@@ -548,6 +548,23 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('改完按 Enter 保存（换行写的那一行变成新的一条），并在下面开一条新的', S.doc.summary.includes('- 甲二改过\n- 甲三是新的一条') && $('#summaryBox .sum-edit textarea') && $('#summaryBox .sum-edit textarea').value === '', S.doc.summary);
     keyOn($('#summaryBox .sum-edit textarea'), 'Enter');
     ok('新的那一条没写字再按 Enter：结束，不留空条目', !$('#summaryBox .sum-edit') && !S.doc.summary.includes('…') && S.doc.summary.includes('- 甲三是新的一条\n\n## 二、乙'), S.doc.summary);
+    S.doc.summary = '![[画面 00:05]]\n\n' + Array.from({ length: 70 }, (_, i) => `- 长课程重点 ${i + 1}`).join('\n'); renderSummary();
+    ok('滚动定位测试的课程重点截图已加载', await until(() => {
+      const im = $('#summaryBox .shot-fig img'); return im && im.complete && im.naturalWidth > 0;
+    }, 10000));
+    const sumBox = $('#summaryBox'), sumTarget = sumBox.querySelector('[data-l^="37-"]');
+    sumBox.scrollTop += sumTarget.getBoundingClientRect().top - sumBox.getBoundingClientRect().top - 80;
+    openSumEditor(sumTarget, false);
+    const sumEditor = $('#summaryBox .sum-edit textarea');
+    sumEditor.value = '编辑后的课程重点内容'; sumEditor.dispatchEvent(new Event('input', { bubbles: true }));
+    const sumEditorTop = $('#summaryBox .sum-edit').getBoundingClientRect().top;
+    $('#summaryBox [data-se="save"]').click();
+    const savedSumTarget = sumBox.querySelector('[data-l^="37-"]');
+    ok('课程重点编辑及截图加载后仍停在原来的位置', await until(() => {
+      const im = $('#summaryBox .shot-fig img');
+      return im && im.complete && im.naturalWidth > 0
+        && Math.abs(savedSumTarget.getBoundingClientRect().top - sumEditorTop) < 5 && sumBox.scrollTop > 0;
+    }, 10000), `${savedSumTarget.getBoundingClientRect().top} / ${sumEditorTop}`);
     S.doc.summary = tsum; renderSummary();
     hover(4); tool('split').click();
     sta = $('#summaryBox .sum-edit textarea'); sta.value = '前半句后半句'; sta.selectionStart = sta.selectionEnd = 3;
@@ -811,6 +828,69 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       document.querySelector('.tts-bar [data-t=close]').click();
       ok('朗读：关闭后播放条消失', !TTS.active() && !document.querySelector('.tts-bar'));
       savePrefs({ tts_engine: 'edge', tts_rate: 1 });
+    }
+    {
+      const box = $('#summaryBox'), oldSummary = S.doc.summary, oldScroll = box.scrollTop, oldEngine = S.settings.tts_engine;
+      S.doc.summary = Array.from({ length: 80 }, (_, i) => `- 跟随测试第 ${i + 1} 条内容。`).join('\n');
+      renderSummary(); box.style.scrollBehavior = 'auto'; box.scrollTop = 0; await wait(50);
+      S.settings.tts_engine = 'system';
+      TTS.start('start');
+      const active = TTS.active(), boxRect = box.getBoundingClientRect();
+      const range = seg => {
+        const r = document.createRange();
+        r.setStart(seg.a[0], seg.a[1]); r.setEnd(seg.b[0], seg.b[1]);
+        return r;
+      };
+      const lastVisible = active.segs.findLastIndex(seg => range(seg).getBoundingClientRect().bottom <= boxRect.bottom);
+      const speakAt = lastVisible - 2, target = range(active.segs[speakAt - 2]);
+      TTS.toggle(); active.i = speakAt; TTS.toggle();
+      await until(async () => {
+        const top = target.getBoundingClientRect().top;
+        if (Math.abs(top - boxRect.top - 4) > 5) { await wait(80); return false; }
+        await wait(120);
+        return Math.abs(target.getBoundingClientRect().top - top) < 1;
+      }, 4000);
+      const aligned = Math.abs(target.getBoundingClientRect().top - boxRect.top - 4) <= 5
+        && range(active.segs[speakAt]).getBoundingClientRect().top >= boxRect.top
+        && range(active.segs[speakAt]).getBoundingClientRect().bottom <= boxRect.bottom;
+      ok('课程重点朗读：下方不足三句时滚动，让当前句回到屏幕顶部第三句', speakAt >= 3 && lastVisible >= 6 && aligned,
+        { speakAt, lastVisible, targetTop: target.getBoundingClientRect().top, boxTop: boxRect.top, scrollTop: box.scrollTop });
+      TTS.stop(true); S.settings.tts_engine = oldEngine;
+      S.doc.summary = oldSummary; renderSummary(); box.style.scrollBehavior = ''; box.scrollTop = oldScroll;
+    }
+    {
+      const box = $('#summaryBox'), oldSummary = S.doc.summary, oldEngine = S.settings.tts_engine;
+      const rows = Array.from({ length: 30 }, (_, i) => `- 编辑后继续朗读测试第 ${i + 1} 条内容。`);
+      S.settings.tts_engine = 'system'; S.doc.summary = rows.join('\n'); renderSummary();
+      TTS.start(12);
+      const active = TTS.active(), readingText = active.segs[active.i].text;
+      toggleSummaryEdit(true);
+      const pausedDuringFullEdit = active.state === 'paused';
+      toggleSummaryEdit(false);
+      ok('课程重点：打开整段编辑再保存，朗读从原句继续',
+        pausedDuringFullEdit && TTS.active() === active && active.state === 'playing'
+        && active.segs[active.i].text === readingText && active.segs[active.i].a[0].isConnected, TTS._state());
+      openSumEditor(box.querySelectorAll('li')[12], false);
+      const pausedDuringEdit = active.state === 'paused';
+      box.querySelector('.sum-edit [data-se="save"]').click();
+      const stillReading = () => TTS.active() === active && active.state === 'playing'
+        && active.segs[active.i].text === readingText && active.segs[active.i].a[0].isConnected;
+      ok('课程重点：打开当前行编辑框再保存，朗读从原句继续', pausedDuringEdit && stillReading(), TTS._state());
+      openSumEditor(box.querySelectorAll('li')[2], false);
+      const edit = box.querySelector('.sum-edit textarea');
+      edit.value += '（已修改）';
+      box.querySelector('.sum-edit [data-se="save"]').click();
+      ok('课程重点：改动一行并保存，正在读的句子和播放状态保留', stillReading(), TTS._state());
+      const deleteText = active.segs[active.i].text, nextText = active.segs[active.i + 1].text;
+      const deleteAt = S.doc.summary.split('\n').findIndex(line => line.includes(deleteText));
+      if (deleteAt >= 0) sumDelete(deleteAt, deleteAt, 'item');
+      ok('课程重点：删除正在读的一行后，自动接着读下一行', TTS.active() === active
+        && deleteAt >= 0 && active.state === 'playing' && active.pendingNext && active.segs[active.i].text === nextText,
+        { state: TTS._state(), deleteAt, nextText, reading: active.segs[active.i] && active.segs[active.i].text,
+          summaryLines: S.doc.summary.split('\n').length, freshCount: TTS.segments(box).length,
+          rootIsSummary: active.root === box, pane: active.src.pane });
+      TTS.stop(true); S.settings.tts_engine = oldEngine;
+      S.doc.summary = oldSummary; renderSummary();
     }
 
     // 老师工作台（mentor.js）：导入测试老师 → 提问（假 AI）→ 出处变成可点的标签 → 收藏 → 点出处跳回课程

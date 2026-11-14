@@ -2412,8 +2412,9 @@ function renderSummaryStale() {
   if (show) $('#summaryStaleText').textContent = `生成课程重点之后，字幕又改了 ${n} 句，重点里可能还是改之前的说法。建议重新生成（不另花钱，约 1～2 分钟）。`;
   syncLibFromDoc();
 }
-function renderSummary() {
+function renderSummary(preservePlayback = false) {
   const box = $('#summaryBox');
+  const playback = preservePlayback && typeof TTS !== 'undefined' ? TTS.beforeSummaryRender(box) : null;
   const s = S.doc && S.doc.summary;
   S.sumEditing = false; hideSumTools();
   box.innerHTML = s ? md(s, { lines: true }) : `<div class="ai-empty">生成字幕后，点「生成课程重点」：<br>AI 按老师这节课的知识体系整理重点，每条标出处时间，<br>再自动对照字幕查漏补缺；剪藏时放在笔记的上半部分。</div>`;
@@ -2427,6 +2428,43 @@ function renderSummary() {
   hydrateFigures(box);
   $$('.shot-fig', box).forEach((fig, n) => fig.querySelector('figcaption').insertAdjacentHTML('beforeend',
     `<span class="fig-tools tts-skip" data-n="${n}"><button data-sf="up" title="挪到上一条重点前面">↑ 上移</button><button data-sf="down" title="挪到下一条重点后面">↓ 下移</button>${fig.querySelector('.redraw-svg, .redraw-code') ? '' : '<button data-sf="edit" title="编辑截图：裁剪、画箭头方框、写字、翻译、复制、保存">✏ 编辑</button>'}${fig.querySelector('.redraw-code') ? '' : '<button data-sf="size" title="调整大小">⇲ 大小</button>'}<button data-sf="del" title="从课程重点里删掉这张图">删除</button></span>`));
+  if (playback) TTS.afterSummaryRender(playback);
+}
+/* 课程重点重画时保留正在操作的那一块在滚动区域里的位置，避免焦点元素被替换后页面跳走 */
+function keepSumInPlace(l0, fn) {
+  const box = $('#summaryBox'), before = box.querySelector('.sum-edit') || $(`[data-l^="${l0}-"]`, box);
+  const top0 = before ? before.getBoundingClientRect().top : null, st0 = box.scrollTop;
+  fn();
+  const after = box.querySelector('.sum-edit') || $(`[data-l^="${l0}-"]`, box);
+  const behavior = box.style.scrollBehavior;
+  const align = () => {
+    box.style.scrollBehavior = 'auto';
+    if (after && after.isConnected && top0 != null) box.scrollTop += after.getBoundingClientRect().top - top0;
+    else box.scrollTop = st0;
+    box.style.scrollBehavior = behavior;
+  };
+  align();
+  const pending = after && top0 != null ? $$('img', box).filter(img => !img.complete || !img.naturalWidth) : [];
+  if (!pending.length) return;
+  let left = pending.length, active = true, timer;
+  const cleanup = () => {
+    if (!active) return;
+    active = false; clearTimeout(timer);
+    box.removeEventListener('wheel', onUser); box.removeEventListener('touchstart', onUser);
+    box.removeEventListener('pointerdown', onUser); box.removeEventListener('keydown', onUser);
+    pending.forEach(img => { img.removeEventListener('load', onLoad); img.removeEventListener('error', onLoad); });
+  };
+  const onUser = () => cleanup();
+  const onLoad = () => {
+    if (!active) return;
+    if (!after.isConnected) return cleanup();
+    align();
+    if (!--left) cleanup();
+  };
+  box.addEventListener('wheel', onUser); box.addEventListener('touchstart', onUser);
+  box.addEventListener('pointerdown', onUser); box.addEventListener('keydown', onUser);
+  pending.forEach(img => { img.addEventListener('load', onLoad); img.addEventListener('error', onLoad); });
+  timer = setTimeout(cleanup, 5000);
 }
 /* ---------- 课程重点里手动插截图（2026-11-02 用户要求，和字幕栏的「插入截图」一样）：和 AI 插的图同一种写法，一行 ![[画面 mm:ss]]
    （剪藏时 doc.place_figures 换成截图）。插在出处时间离视频现在最近（不晚于它）的那一条后面，正在编辑时插在光标那一行后面；
@@ -2498,7 +2536,7 @@ function insertSumShot() {
   S.doc.sum_shots = (S.doc.sum_shots || []).filter(x => x !== t).concat([t]);
   markDirty();
   if (summaryEditing) { $('#summaryEdit').value = S.doc.summary; return toast('截图插在光标那一行后面了'); }
-  renderSummary(); scrollToSumFig(t);
+  renderSummary(true); scrollToSumFig(t);
   toast('截图插在出处时间最接近的那一条后面了；位置不对可以点图下面的「上移 / 下移」', { ms: 5000 });
 }
 function moveSumShot(n, act) {  // n：课程重点里从上往下第几张图
@@ -2509,7 +2547,7 @@ function moveSumShot(n, act) {  // n：课程重点里从上往下第几张图
   if (act === 'edit') {
     const f = figShot(t);
     return openShotEdit(f ? f.t : t, (S.doc.fig_edits || {})[String(t)] || {}).then(r => {
-      if (r) { setFigEdit(t, 'crop', r.crop); setFigEdit(t, 'marks', r.marks); markDirty(); renderSummary(); }
+      if (r) { setFigEdit(t, 'crop', r.crop); setFigEdit(t, 'marks', r.marks); markDirty(); renderSummary(true); }
     });
   }
   if (act === 'del') {
@@ -2527,7 +2565,7 @@ function moveSumShot(n, act) {  // n：课程重点里从上往下第几张图
     lines.splice(at, 0, '', tag, '');
   }
   S.doc.summary = sumTidy(lines);
-  markDirty(); renderSummary();
+  markDirty(); renderSummary(true);
   if (act !== 'del') scrollToSumFig(t);
 }
 /* ---------- 每条重点旁边的小工具（2026-11-02 用户要求：不进「编辑」也能改字、加一条、上移下移、合并、拆分、缩进、删除）。
@@ -2552,7 +2590,7 @@ function sumUndo() {
   if (!S.doc || !(S.sumUndo || []).length) return false;
   if (summaryEditing) toggleSummaryEdit(false);
   S.doc.summary = S.sumUndo.pop();
-  markDirty(); renderSummary();
+  markDirty(); renderSummary(true);
   toast('已撤销课程重点的上一步修改');
   return true;
 }
@@ -2566,7 +2604,7 @@ function setSummary(lines, msg) {  // 写回课程重点；msg：提示（带「
     if (h && i + 1 < lines.length && lines[i + 1].trim()) out.push('');
   });
   S.doc.summary = sumTidy(out);
-  markDirty(); renderSummary();
+  markDirty(); renderSummary(true);
   if (msg) toast(msg, { ms: 5000, action: { label: '撤销', run: sumUndo } });
 }
 /* 这一块连同附带的内容到第几行：列表项 = 它和下面缩进更深的行；小标题 = 到同级或更高一级标题之前；其他 = 它自己 */
@@ -2706,15 +2744,18 @@ function sumAdd(l0, l1, kind) {
   pushSumUndo();
   lines.splice(at, 0, ...ins);
   S.doc.summary = lines.join('\n');  // 先不整理空行，行号才对得上
-  renderSummary();
-  const el = $(`#summaryBox [data-l^="${nl}-"]`);
-  if (el) openSumEditor(el, true); else { S.doc.summary = S.sumUndo.pop(); renderSummary(); }
+  keepSumInPlace(l0, () => {
+    renderSummary(true);
+    const el = $(`#summaryBox [data-l^="${nl}-"]`);
+    if (el) openSumEditor(el, true); else { S.doc.summary = S.sumUndo.pop(); renderSummary(true); }
+  });
 }
 /* ✎ 改这一条：只把这一块变成输入框。点别处、点「保存」保存；Esc 取消；Shift+Enter 换行（列表项里换行写的每一行变成新的一条）。
    2026-11-02 用户要求去掉「加一条」「缩进」「取消缩进」按钮、改成按键：Enter = 保存并在下面加一条（新的那一条什么都没写再按 Enter 就结束）；
    列表项里 Tab = 缩进、Shift+Tab = 取消缩进，编辑框不关、接着打字。init / caret：重新打开时接着用的文字和光标位置 */
 function openSumEditor(el, isNew, split, init, caret) {
   const [l0, l1] = el.dataset.l.split('-').map(Number), kind = sumKind(el), lines = sumLines();
+  if (typeof TTS !== 'undefined') TTS.pauseSummaryEdit($('#summaryBox'));
   hideSumTools(); S.sumEditing = true;
   const im = kind === 'item' && lines[l0].match(ITEM_RE), hm = kind === 'head' && lines[l0].match(HEAD_RE);
   const value = init != null ? init : isNew ? '' : im ? im[4] : hm ? hm[2] : lines.slice(l0, l1 + 1).join('\n');
@@ -2738,9 +2779,11 @@ function openSumEditor(el, isNew, split, init, caret) {
     const out = indentLines(cur, l0, dir);
     if (typeof out === 'string') toast(out);
     S.doc.summary = (typeof out === 'string' ? cur : out).join('\n');
-    renderSummary();
-    const again = $(`#summaryBox [data-l^="${l0}-"]`);
-    if (again) openSumEditor(again, isNew, false, text, pos);
+    keepSumInPlace(l0, () => {
+      renderSummary(true);
+      const again = $(`#summaryBox [data-l^="${l0}-"]`);
+      if (again) openSumEditor(again, isNew, false, text, pos);
+    });
   };
   const finish = (save, cut, next) => {
     if (done) return; done = true;
@@ -2759,7 +2802,9 @@ function openSumEditor(el, isNew, split, init, caret) {
     const old = cur.slice(l0, l1 + 1).join('\n');
     if (!save || (isNew && !rep.length)) {  // 取消，或者新加的那一条什么都没写：当没加过（连续按 Enter 加条目时，在空的那一条上再按 Enter 就结束）
       if (isNew) S.doc.summary = S.sumUndo.pop();
-      return renderSummary();
+      keepSumInPlace(l0, () => renderSummary(true));
+      if (typeof TTS !== 'undefined') TTS.resumeSummaryEdit();
+      return;
     }
     const same = !isNew && rep.join('\n') === old;
     if (!same) {
@@ -2771,8 +2816,13 @@ function openSumEditor(el, isNew, split, init, caret) {
       const last = l0 + rep.length - 1;
       return kind === 'head' ? sumAdd(l0, l0, 'head') : sumAdd(kind === 'item' ? last : l0, last, kind);
     }
-    if (same) return renderSummary();
-    setSummary(cur, !rep.length ? '已删除（内容清空了）' : rep.length > 1 && kind === 'item' ? `已拆成 ${rep.length} 条` : '');
+    if (same) {
+      keepSumInPlace(l0, () => renderSummary(true));
+      if (typeof TTS !== 'undefined') TTS.resumeSummaryEdit();
+      return;
+    }
+    keepSumInPlace(l0, () => setSummary(cur, !rep.length ? '已删除（内容清空了）' : rep.length > 1 && kind === 'item' ? `已拆成 ${rep.length} 条` : ''));
+    if (typeof TTS !== 'undefined') TTS.resumeSummaryEdit();
   };
   ta.addEventListener('keydown', e => {
     if (e.isComposing || e.keyCode === 229) return;  // 输入法正在选字时的回车不算
@@ -2950,11 +3000,12 @@ async function runReview() {
 }
 function toggleSummaryEdit(on) {
   summaryEditing = on ?? !summaryEditing;
+  if (summaryEditing) { if (typeof TTS !== 'undefined') TTS.pauseSummaryEdit($('#summaryBox')); }
   $('#summaryEdit').hidden = !summaryEditing; $('#summaryBox').hidden = summaryEditing;
   $('#btnEditSummary').textContent = summaryEditing ? '完成编辑' : '编辑';
   $('#btnEditSummary').classList.toggle('primary', summaryEditing);
   if (summaryEditing) { pushSumUndo(); $('#summaryEdit').value = S.doc.summary || ''; $('#summaryEdit').focus(); }
-  else renderSummary();
+  else { renderSummary(true); if (typeof TTS !== 'undefined') TTS.resumeSummaryEdit(); }
 }
 function renderChat() {
   const box = $('#chatBox');
