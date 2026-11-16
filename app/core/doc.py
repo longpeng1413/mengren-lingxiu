@@ -125,12 +125,16 @@ def load(media_path: str):
     for path in _own_paths(media_path):
         d = _read_doc(path)
         if d is not None:
+            if d.get('summary_stale_dismissed') and not isinstance(d.get('summary_stale_dismissed_src'), list):
+                d['summary_stale_dismissed_src'] = summary_basis(d.get('segments') or [])
             d['_stored'] = str(path)
             _fix_teacher(d)
             return d
     for path in _sibling_paths(media_path):
         d = _read_doc(path)
         if d is not None:
+            if d.get('summary_stale_dismissed') and not isinstance(d.get('summary_stale_dismissed_src'), list):
+                d['summary_stale_dismissed_src'] = summary_basis(d.get('segments') or [])
             d['clip'] = None
             d.pop('rev', None)
             d['_stored'] = d['_from_sibling'] = str(path)
@@ -239,7 +243,10 @@ def summary_changes(doc) -> int:
 
 def summary_outdated(doc) -> bool:
     """Whether changed subtitles should mark the course summary as needing an update."""
-    return not doc.get('summary_stale_dismissed') and summary_changes(doc) >= SUMMARY_STALE_AT
+    if doc.get('summary_stale_dismissed'):
+        baseline = doc.get('summary_stale_dismissed_src')
+        return isinstance(baseline, list) and summary_basis(doc.get('segments')) != baseline
+    return summary_changes(doc) >= SUMMARY_STALE_AT
 
 
 def clip_stale(doc) -> bool:
@@ -272,6 +279,8 @@ def save(media_path: str, doc: dict, base_rev=None) -> dict:
         data['version'] = VERSION
         data['media'] = os.path.abspath(media_path)
         data['segments'] = clean_segments(data.get('segments'))
+        if data.get('summary_stale_dismissed') and not isinstance(data.get('summary_stale_dismissed_src'), list):
+            data['summary_stale_dismissed_src'] = summary_basis(data['segments'])
         data['updated'] = time.strftime('%Y-%m-%d %H:%M:%S')
         data['rev'] = disk_rev + 1
         try:  # 只写猛人灵修自己的文件；猛人学习的字幕文件（读进来当起点的）不写、不改名、不删
@@ -282,7 +291,8 @@ def save(media_path: str, doc: dict, base_rev=None) -> dict:
             _write(fallback(media_path), data)
             where = fallback(media_path)
     return {'updated': data['updated'], 'rev': data['rev'], 'stored': str(where), 'stale': clip_stale(data),
-            'summary_changes': summary_changes(data)}
+            'summary_changes': summary_changes(data), 'summary_outdated': summary_outdated(data),
+            'summary_stale_dismissed_src': data.get('summary_stale_dismissed_src')}
 
 
 # ------------------------------------------------------------------ 导出 ----
